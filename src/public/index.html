@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Painel da Dona | TesteZap</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=Plus+Jakarta+Sans:wght@500;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="bg-shape bg-shape-one"></div>
+  <div class="bg-shape bg-shape-two"></div>
+  <div class="noise-layer" aria-hidden="true"></div>
+
+  <main class="shell">
+    <section id="loginView" class="card login-view">
+      <p class="eyebrow">Central de supervisao</p>
+      <h1>Painel da Dona</h1>
+      <p class="muted">
+        Visualize mensagens das vendedoras por instancia, responda da linha correta
+        e acompanhe auditoria em um unico lugar.
+      </p>
+
+      <form id="loginForm" class="stack gap-md">
+        <label class="field-label" for="emailInput">Email</label>
+        <input id="emailInput" name="email" type="email" autocomplete="email" required placeholder="dona@empresa.com" />
+
+        <label class="field-label" for="passwordInput">Senha</label>
+        <input id="passwordInput" name="password" type="password" autocomplete="current-password" required placeholder="Sua senha" />
+
+        <button id="loginButton" type="submit" class="btn btn-primary">Entrar no painel</button>
+      </form>
+
+      <p id="loginError" class="error-text hidden" role="alert"></p>
+    </section>
+
+    <section id="dashboardView" class="dashboard hidden">
+      <header class="card topbar">
+        <div class="topbar-title">
+          <p class="eyebrow">Atendimento supervisionado</p>
+          <h2>Conversas das vendedoras</h2>
+        </div>
+        <div class="topbar-actions">
+          <div id="userBadge" class="user-badge">-</div>
+          <button id="refreshAllButton" class="btn btn-ghost" type="button">Atualizar</button>
+          <button id="logoutButton" class="btn btn-danger" type="button">Sair</button>
+        </div>
+      </header>
+
+      <div class="workspace">
+        <aside class="card sellers-panel">
+          <div class="panel-header">
+            <h3>Vendedoras</h3>
+            <span id="sellersCounter" class="chip">0</span>
+          </div>
+
+          <form id="sellerForm" class="seller-form">
+            <div class="panel-header seller-form-header">
+              <h4 id="sellerFormTitle">Nova vendedora</h4>
+              <span id="sellerFormModeTag" class="chip">Cadastro</span>
+            </div>
+
+            <div class="seller-form-grid">
+              <div class="stack">
+                <label class="field-label" for="sellerIdInput">ID da instancia</label>
+                <input id="sellerIdInput" type="text" placeholder="vendedora-sp-01" required />
+              </div>
+
+              <div class="stack">
+                <label class="field-label" for="sellerEvolutionInput">Instance Evolution</label>
+                <input id="sellerEvolutionInput" type="text" placeholder="vendedora_sp_01" required />
+              </div>
+
+              <div class="stack grow seller-grid-full">
+                <label class="field-label" for="sellerLabelInput">Nome da vendedora</label>
+                <input id="sellerLabelInput" type="text" placeholder="Vendedora Sao Paulo" required />
+              </div>
+
+              <div class="stack grow seller-grid-full">
+                <label class="field-label" for="sellerPhoneInput">WhatsApp da vendedora</label>
+                <input id="sellerPhoneInput" type="text" placeholder="+5511999990001" required />
+              </div>
+            </div>
+
+            <div class="seller-options-row">
+              <label class="toggle-field">
+                <input id="sellerActiveInput" type="checkbox" checked />
+                <span>Instancia ativa</span>
+              </label>
+
+              <label class="toggle-field">
+                <input id="sellerProvisionInput" type="checkbox" checked />
+                <span>Provisionar na Evolution</span>
+              </label>
+            </div>
+
+            <div class="seller-form-actions">
+              <button id="sellerResetButton" class="btn btn-ghost" type="button">Limpar</button>
+              <button id="sellerSaveButton" class="btn btn-primary" type="submit">Cadastrar vendedora</button>
+            </div>
+          </form>
+
+          <input id="sellerSearchInput" type="search" placeholder="Buscar vendedora ou instancia" />
+
+          <div id="sellerList" class="seller-list"></div>
+
+          <section id="qrCard" class="qr-card hidden" aria-live="polite">
+            <div class="panel-header">
+              <h4 id="qrCardTitle">Conectar WhatsApp</h4>
+              <button id="qrCloseButton" class="btn btn-ghost btn-small" type="button">Fechar</button>
+            </div>
+            <p id="qrCardMeta" class="muted"></p>
+            <img id="qrImage" class="qr-image hidden" alt="QR code para vincular WhatsApp" />
+            <pre id="qrRaw" class="qr-raw hidden"></pre>
+            <p class="qr-hint">No celular da vendedora: WhatsApp > Aparelhos conectados > Conectar aparelho e escaneie o QR.</p>
+          </section>
+        </aside>
+
+        <section class="card conversation-panel">
+          <div class="panel-header conversation-header">
+            <div>
+              <h3 id="conversationTitle">Selecione uma vendedora</h3>
+              <p id="conversationMeta" class="muted">Sem instancia selecionada</p>
+            </div>
+
+            <div class="range-switch" role="tablist" aria-label="Janela de tempo">
+              <button class="range-button active" type="button" data-range="24h">24h</button>
+              <button class="range-button" type="button" data-range="7d">7 dias</button>
+              <button class="range-button" type="button" data-range="all">Tudo</button>
+            </div>
+          </div>
+
+          <div id="messagesFeed" class="messages-feed"></div>
+
+          <form id="sendForm" class="composer">
+            <div class="composer-grid">
+              <div class="stack">
+                <label class="field-label" for="recipientInput">Enviar para (numero)</label>
+                <input id="recipientInput" type="text" placeholder="5511999991111" required />
+              </div>
+
+              <div class="stack grow">
+                <label class="field-label" for="messageInput">Mensagem</label>
+                <textarea id="messageInput" rows="2" placeholder="Digite a resposta da dona para a conversa selecionada" required></textarea>
+              </div>
+            </div>
+
+            <div class="composer-actions">
+              <button id="sendButton" class="btn btn-primary" type="submit">Enviar mensagem</button>
+            </div>
+          </form>
+        </section>
+
+        <aside class="insights-column">
+          <article class="card stats-panel">
+            <h3>Resumo rapido</h3>
+            <div class="stats-grid">
+              <div class="stat-item">
+                <span class="stat-label">Instancias ativas</span>
+                <strong id="statActiveSellers">0</strong>
+              </div>
+              <div class="stat-item">
+                <span class="stat-label">Mensagens 24h</span>
+                <strong id="statInbound24h">0</strong>
+              </div>
+              <div class="stat-item">
+                <span class="stat-label">Total de origens</span>
+                <strong id="statOrigins">0</strong>
+              </div>
+            </div>
+          </article>
+
+          <article class="card origins-panel">
+            <div class="panel-header">
+              <h3>Origens</h3>
+              <span id="originsCounter" class="chip">0</span>
+            </div>
+            <div id="originsList" class="compact-list"></div>
+          </article>
+
+          <article class="card audit-panel">
+            <div class="panel-header">
+              <h3>Auditoria</h3>
+              <span id="auditCounter" class="chip">0</span>
+            </div>
+            <div id="auditList" class="compact-list"></div>
+          </article>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <div id="toastArea" class="toast-area" aria-live="polite" aria-atomic="true"></div>
+
+  <script src="./app.js"></script>
+</body>
+</html>
