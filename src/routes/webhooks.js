@@ -3,6 +3,7 @@ const env = require("../config/env");
 const {
     getInstanceById,
     setInstanceStatus,
+    setInstanceLatestQr,
     saveInboundMessage,
 } = require("../db/database");
 const logger = require("../lib/logger");
@@ -22,7 +23,14 @@ function extractIncomingToken(req) {
         return authHeader.slice(7).trim();
     }
 
-    return req.get("x-webhook-token") || req.get("x-evolution-token") || req.query.token || null;
+    return (
+        req.get("x-webhook-token") ||
+        req.get("x-evolution-token") ||
+        req.get("apikey") ||
+        req.body?.apikey ||
+        req.query.token ||
+        null
+    );
 }
 
 function assertWebhookAuthorized(req, instanceRecord) {
@@ -59,6 +67,10 @@ router.post(
         const detectedStatus = extractConnectionStatus(req.body, eventName);
         if (detectedStatus) {
             setInstanceStatus(instance.id, detectedStatus);
+        }
+
+        if ((eventName || "").toUpperCase().includes("QRCODE")) {
+            setInstanceLatestQr(instance.id, req.body);
         }
 
         if (!isMessageEvent(eventName)) {

@@ -490,6 +490,13 @@ function resolveQrDisplayData(qrPayload) {
     }
 
     if (typeof qrPayload === "object") {
+        if (Number(qrPayload.count || 0) === 0) {
+            return {
+                imageSrc: null,
+                rawText: `A Evolution ainda nao devolveu o QR por HTTP.\nSe isso persistir, abra o manager em ${getEvolutionManagerUrl()} e conecte a instancia por la uma vez.`,
+            };
+        }
+
         const candidates = [
             qrPayload.base64,
             qrPayload.qr,
@@ -498,6 +505,12 @@ function resolveQrDisplayData(qrPayload) {
             qrPayload.code,
             qrPayload.pairingCode,
             qrPayload.data,
+            qrPayload.data?.base64,
+            qrPayload.data?.qr,
+            qrPayload.data?.qrcode,
+            qrPayload.data?.qrCode,
+            qrPayload.data?.code,
+            qrPayload.data?.pairingCode,
         ];
         const stringCandidate = candidates.find((value) => typeof value === "string" && value.trim());
 
@@ -511,6 +524,10 @@ function resolveQrDisplayData(qrPayload) {
         imageSrc: null,
         rawText: String(qrPayload),
     };
+}
+
+function getEvolutionManagerUrl() {
+    return `${window.location.protocol}//${window.location.hostname}:8080/manager`;
 }
 
 function toQrImageSrc(value) {

@@ -29,9 +29,10 @@ Agora o backend inclui autenticacao JWT para uso administrativo da dona, com sup
 
 ```env
 PORT=3333
-EVOLUTION_API_URL=http://localhost:8080
+EVOLUTION_API_URL=http://127.0.0.1:8080
 EVOLUTION_API_KEY=change-me
 PUBLIC_WEBHOOK_BASE_URL=https://your-public-url
+EVOLUTION_WEBHOOK_GLOBAL_URL=https://your-public-url/webhooks/evolution
 DB_PATH=./data/multi-instance.db
 AUTH_JWT_SECRET=change-this-secret
 AUTH_JWT_EXPIRES_IN=12h
@@ -72,9 +73,10 @@ docker compose -f docker-compose.evolution.yml up -d
 3. Configure seu `.env` do app com a mesma chave:
 
 ```env
-EVOLUTION_API_URL=http://localhost:8080
+EVOLUTION_API_URL=http://127.0.0.1:8080
 EVOLUTION_API_KEY=troque-por-uma-chave-forte
 PUBLIC_WEBHOOK_BASE_URL=http://host.docker.internal:3333
+EVOLUTION_WEBHOOK_GLOBAL_URL=http://host.docker.internal:3333/webhooks/evolution
 ```
 
 4. Suba o app:

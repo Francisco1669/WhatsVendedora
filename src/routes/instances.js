@@ -23,7 +23,9 @@ const router = express.Router();
 
 function buildWebhookBaseUrl(req) {
     if (env.PUBLIC_WEBHOOK_BASE_URL) {
-        return env.PUBLIC_WEBHOOK_BASE_URL.replace(/\/+$/, "");
+        return env.PUBLIC_WEBHOOK_BASE_URL
+            .replace(/\/+$/, "")
+            .replace(/\/webhooks\/evolution$/i, "");
     }
 
     return `${req.protocol}://${req.get("host")}`;
@@ -37,10 +39,47 @@ function sanitizeInstance(instance, options = {}) {
         evolutionInstance: instance.evolutionInstance,
         active: Boolean(instance.active),
         status: instance.status,
+        lastQrPayload: instance.lastQrPayload,
+        lastQrAt: instance.lastQrAt,
         createdAt: instance.createdAt,
         updatedAt: instance.updatedAt,
         webhookToken: options.includeWebhookToken ? instance.webhookToken : undefined,
     };
+}
+
+function hasUsefulQrData(qrData) {
+    if (!qrData) {
+        return false;
+    }
+
+    if (typeof qrData === "string") {
+        return qrData.trim().length > 0;
+    }
+
+    if (typeof qrData !== "object") {
+        return false;
+    }
+
+    const candidates = [
+        qrData.base64,
+        qrData.qr,
+        qrData.qrcode,
+        qrData.qrCode,
+        qrData.code,
+        qrData.pairingCode,
+        qrData?.data?.base64,
+        qrData?.data?.qr,
+        qrData?.data?.qrcode,
+        qrData?.data?.qrCode,
+        qrData?.data?.code,
+        qrData?.data?.pairingCode,
+    ];
+
+    return candidates.some((value) => typeof value === "string" && value.trim().length > 0);
+}
+
+function wait(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 router.post(
@@ -238,7 +277,19 @@ router.post(
             return;
         }
 
-        const qrData = await evolutionClient.requestConnectionQr(instance.evolutionInstance);
+        let qrData = await evolutionClient.requestConnectionQr(instance.evolutionInstance);
+
+        if (!hasUsefulQrData(qrData)) {
+            for (let attempt = 0; attempt < 6; attempt += 1) {
+                await wait(2000);
+                const refreshedInstance = getInstanceById(instance.id);
+                if (hasUsefulQrData(refreshedInstance?.lastQrPayload)) {
+                    qrData = refreshedInstance.lastQrPayload;
+                    break;
+                }
+            }
+        }
+
         res.json({
             data: {
                 instanceId: instance.id,

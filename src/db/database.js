@@ -121,6 +121,8 @@ function initializeDatabase() {
   ensureColumnExists(db, "outbound_messages", "sent_by_user_name", "TEXT");
   ensureColumnExists(db, "outbound_messages", "sent_by_user_role", "TEXT");
   ensureColumnExists(db, "outbound_messages", "request_id", "TEXT");
+  ensureColumnExists(db, "instances", "last_qr_payload", "TEXT");
+  ensureColumnExists(db, "instances", "last_qr_at", "TEXT");
 
   state.db = db;
   state.statements = {
@@ -160,6 +162,8 @@ function initializeDatabase() {
         webhook_token AS webhookToken,
         active,
         status,
+        last_qr_payload AS lastQrPayload,
+        last_qr_at AS lastQrAt,
         created_at AS createdAt,
         updated_at AS updatedAt
       FROM instances
@@ -174,6 +178,8 @@ function initializeDatabase() {
         webhook_token AS webhookToken,
         active,
         status,
+        last_qr_payload AS lastQrPayload,
+        last_qr_at AS lastQrAt,
         created_at AS createdAt,
         updated_at AS updatedAt
       FROM instances
@@ -188,6 +194,8 @@ function initializeDatabase() {
         webhook_token AS webhookToken,
         active,
         status,
+        last_qr_payload AS lastQrPayload,
+        last_qr_at AS lastQrAt,
         created_at AS createdAt,
         updated_at AS updatedAt
       FROM instances
@@ -196,6 +204,11 @@ function initializeDatabase() {
     setInstanceStatus: db.prepare(`
       UPDATE instances
       SET status = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `),
+    setInstanceLatestQr: db.prepare(`
+      UPDATE instances
+      SET last_qr_payload = ?, last_qr_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `),
     insertInboundMessage: db.prepare(`
@@ -420,22 +433,46 @@ function upsertInstance(instanceData) {
 
 function getInstanceById(instanceId) {
   const { statements } = ensureInitialized();
-  return statements.getInstanceById.get(instanceId);
+  const row = statements.getInstanceById.get(instanceId);
+  if (!row) {
+    return null;
+  }
+
+  return {
+    ...row,
+    lastQrPayload: parseJsonSafe(row.lastQrPayload),
+  };
 }
 
 function getInstanceByEvolutionInstance(evolutionInstance) {
   const { statements } = ensureInitialized();
-  return statements.getInstanceByEvolution.get(evolutionInstance);
+  const row = statements.getInstanceByEvolution.get(evolutionInstance);
+  if (!row) {
+    return null;
+  }
+
+  return {
+    ...row,
+    lastQrPayload: parseJsonSafe(row.lastQrPayload),
+  };
 }
 
 function listInstances() {
   const { statements } = ensureInitialized();
-  return statements.listInstances.all();
+  return statements.listInstances.all().map((row) => ({
+    ...row,
+    lastQrPayload: parseJsonSafe(row.lastQrPayload),
+  }));
 }
 
 function setInstanceStatus(instanceId, status) {
   const { statements } = ensureInitialized();
   statements.setInstanceStatus.run(status, instanceId);
+}
+
+function setInstanceLatestQr(instanceId, qrPayload) {
+  const { statements } = ensureInitialized();
+  statements.setInstanceLatestQr.run(JSON.stringify(qrPayload || {}), instanceId);
 }
 
 function saveInboundMessage(messageData) {
@@ -682,6 +719,7 @@ module.exports = {
   getInstanceByEvolutionInstance,
   listInstances,
   setInstanceStatus,
+  setInstanceLatestQr,
   saveInboundMessage,
   saveOutboundMessage,
   listInboundMessages,

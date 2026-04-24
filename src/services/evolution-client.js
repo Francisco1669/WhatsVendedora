@@ -1,16 +1,28 @@
 const axios = require("axios");
 const env = require("../config/env");
 
+function normalizeBaseUrl(url) {
+    return String(url || "").trim().replace(/\/+$/, "");
+}
+
+function buildBaseUrls(url) {
+    const primary = normalizeBaseUrl(url);
+    if (!primary) {
+        return [];
+    }
+
+    const urls = [primary];
+
+    if (/^http:\/\/localhost(?::|\/|$)/i.test(primary)) {
+        urls.push(primary.replace(/^http:\/\/localhost/i, "http://127.0.0.1"));
+    }
+
+    return [...new Set(urls)];
+}
+
 class EvolutionClient {
     constructor() {
-        this.http = axios.create({
-            baseURL: env.EVOLUTION_API_URL,
-            timeout: 15000,
-            headers: {
-                apikey: env.EVOLUTION_API_KEY,
-                "Content-Type": "application/json",
-            },
-        });
+        this.baseUrls = buildBaseUrls(env.EVOLUTION_API_URL);
     }
 
     isConfigured() {
@@ -23,6 +35,17 @@ class EvolutionClient {
             error.status = 503;
             throw error;
         }
+    }
+
+    createHttpClient(baseURL) {
+        return axios.create({
+            baseURL,
+            timeout: 15000,
+            headers: {
+                apikey: env.EVOLUTION_API_KEY,
+                "Content-Type": "application/json",
+            },
+        });
     }
 
     static normalizeError(error) {
@@ -38,20 +61,25 @@ class EvolutionClient {
         this.ensureConfigured();
         const failures = [];
 
-        for (const request of requests) {
-            try {
-                const response = await this.http.request(request);
-                return response.data;
-            } catch (error) {
-                const status = error.response?.status;
-                failures.push({
-                    request: `${(request.method || "GET").toUpperCase()} ${request.url}`,
-                    status: status || "network",
-                    message: error.response?.data?.message || error.message,
-                });
+        for (const baseURL of this.baseUrls) {
+            const http = this.createHttpClient(baseURL);
 
-                if (status && status >= 400 && status < 500 && status !== 404 && status !== 405) {
-                    throw EvolutionClient.normalizeError(error);
+            for (const request of requests) {
+                try {
+                    const response = await http.request(request);
+                    return response.data;
+                } catch (error) {
+                    const status = error.response?.status;
+                    failures.push({
+                        baseURL,
+                        request: `${(request.method || "GET").toUpperCase()} ${request.url}`,
+                        status: status || "network",
+                        message: error.response?.data?.message || error.message,
+                    });
+
+                    if (status && status >= 400 && status < 500 && status !== 404 && status !== 405) {
+                        throw EvolutionClient.normalizeError(error);
+                    }
                 }
             }
         }
@@ -66,19 +94,28 @@ class EvolutionClient {
 
     async configureWebhook(instanceName, webhookUrl, webhookToken) {
         const safeInstance = encodeURIComponent(instanceName);
-        const payload = {
+        const webhookConfig = {
             enabled: true,
             url: webhookUrl,
-            webhookByEvents: true,
+            webhookByEvents: false,
             webhookBase64: false,
             events: ["MESSAGES_UPSERT", "CONNECTION_UPDATE", "QRCODE_UPDATED"],
-            headers: {
-                "x-webhook-token": webhookToken,
-            },
         };
 
+        const payloads = [
+            webhookConfig,
+            {
+                webhook: {
+                    ...webhookConfig,
+                    headers: {
+                        "x-webhook-token": webhookToken,
+                    },
+                },
+            },
+        ];
+
         return this.runFallbackRequests(
-            [
+            payloads.flatMap((payload) => [
                 {
                     method: "post",
                     url: `/webhook/set/${safeInstance}`,
@@ -94,7 +131,7 @@ class EvolutionClient {
                     url: `/instances/${safeInstance}/webhook`,
                     data: payload,
                 },
-            ],
+            ]),
             "configureWebhook"
         );
     }
@@ -103,13 +140,14 @@ class EvolutionClient {
         const safeInstance = encodeURIComponent(instanceName);
         const createPayload = {
             instanceName,
+            token: webhookToken,
             qrcode: true,
             integration: "WHATSAPP-BAILEYS",
             webhook: webhookUrl
                 ? {
                     enabled: true,
                     url: webhookUrl,
-                    webhookByEvents: true,
+                    webhookByEvents: false,
                     webhookBase64: false,
                     events: ["MESSAGES_UPSERT", "CONNECTION_UPDATE", "QRCODE_UPDATED"],
                     headers: {
@@ -143,14 +181,9 @@ class EvolutionClient {
             "provisionInstance"
         );
 
-        let webhookResult = null;
-        if (webhookUrl) {
-            webhookResult = await this.configureWebhook(instanceName, webhookUrl, webhookToken);
-        }
-
         return {
             createResult,
-            webhookResult,
+            webhookResult: null,
         };
     }
 
