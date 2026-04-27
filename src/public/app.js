@@ -12,7 +12,9 @@ const state = {
     origins: [],
     audits: [],
     messages: [],
+    conversations: [],
     selectedInstanceId: null,
+    selectedConversationId: null,
     selectedOriginTag: null,
     selectedRange: "24h",
     sellerFormMode: "create",
@@ -67,6 +69,8 @@ function cacheElements() {
 
     dom.conversationTitle = document.getElementById("conversationTitle");
     dom.conversationMeta = document.getElementById("conversationMeta");
+    dom.threadsCounter = document.getElementById("threadsCounter");
+    dom.threadsList = document.getElementById("threadsList");
     dom.messagesFeed = document.getElementById("messagesFeed");
     dom.recipientInput = document.getElementById("recipientInput");
     dom.messageInput = document.getElementById("messageInput");
@@ -94,6 +98,7 @@ function bindEvents() {
     dom.sellerResetButton.addEventListener("click", onSellerFormReset);
     dom.sellerSearchInput.addEventListener("input", renderSellerList);
     dom.sellerList.addEventListener("click", onSellerItemClick);
+    dom.threadsList.addEventListener("click", onThreadItemClick);
     dom.qrCloseButton.addEventListener("click", hideQrCard);
 
     dom.sendForm.addEventListener("submit", onSendSubmit);
@@ -188,9 +193,12 @@ async function refreshDashboard({ preserveSelection }) {
         renderSellerList();
 
         if (state.selectedInstanceId) {
-            await loadMessagesForInstance(state.selectedInstanceId);
+            await loadConversationsForInstance(state.selectedInstanceId, { preserveConversation: true });
         } else {
             state.messages = [];
+            state.conversations = [];
+            state.selectedConversationId = null;
+            renderThreads();
             renderEmptyConversation("Nenhuma instancia cadastrada.");
             setComposerAvailability(null);
         }
@@ -333,7 +341,7 @@ async function onSellerItemClick(event) {
         return;
     }
 
-    await loadMessagesForInstance(instanceId);
+    await loadConversationsForInstance(instanceId, { preserveConversation: false });
 }
 
 async function handleSellerAction(action, instanceId) {
@@ -399,6 +407,7 @@ async function deleteSeller(instanceId) {
 
         if (state.selectedInstanceId === instanceId) {
             state.selectedInstanceId = null;
+            state.selectedConversationId = null;
         }
 
         hideQrCard();
@@ -661,7 +670,7 @@ function normalizeInstanceId(value) {
         .replace(/^-|-$/g, "");
 }
 
-async function loadMessagesForInstance(instanceId) {
+async function loadConversationsForInstance(instanceId, { preserveConversation }) {
     state.selectedInstanceId = instanceId;
     renderSellerList();
 
@@ -669,12 +678,69 @@ async function loadMessagesForInstance(instanceId) {
     dom.conversationTitle.textContent = seller?.sellerLabel || instanceId;
     dom.conversationMeta.textContent = seller
         ? `${seller.phoneNumber || "-"} | ${seller.evolutionInstance || "-"}`
-        : "Carregando mensagens...";
+        : "Carregando conversas...";
+
+    setComposerAvailability(null);
+    state.messages = [];
+    dom.messagesFeed.innerHTML = '<div class="empty-state">Carregando conversas...</div>';
+    dom.threadsList.innerHTML = '<div class="empty-state">Carregando...</div>';
+
+    const params = new URLSearchParams();
+    const receivedAfter = getReceivedAfterFromRange();
+    if (receivedAfter) {
+        params.set("receivedAfter", receivedAfter);
+    }
+
+    try {
+        const payload = await apiRequest(
+            `/api/instances/${encodeURIComponent(instanceId)}/conversations?${params.toString()}`
+        );
+        state.conversations = payload.data || [];
+        state.selectedOriginTag = payload.originTag || null;
+
+        if (
+            !preserveConversation ||
+            !state.conversations.some((item) => item.conversationId === state.selectedConversationId)
+        ) {
+            state.selectedConversationId = state.conversations[0]?.conversationId || null;
+        }
+
+        renderThreads();
+
+        if (state.selectedConversationId) {
+            await loadMessagesForConversation(instanceId, state.selectedConversationId);
+        } else {
+            setComposerAvailability(null);
+            renderEmptyConversation("Nenhuma conversa encontrada para esta vendedora.");
+        }
+    } catch (error) {
+        handleApiError(error);
+        state.conversations = [];
+        state.selectedConversationId = null;
+        renderThreads();
+        renderEmptyConversation("Nao foi possivel carregar as conversas desta vendedora.");
+    }
+}
+
+async function loadMessagesForConversation(instanceId, conversationId) {
+    const seller = getSellerById(instanceId);
+    const conversation = getConversationById(conversationId);
+    state.selectedConversationId = conversationId;
+    renderThreads();
+
+    dom.conversationTitle.textContent =
+        conversation?.displayName || conversation?.contactDisplay || seller?.sellerLabel || instanceId;
+    dom.conversationMeta.textContent = seller
+        ? `${seller.sellerLabel || seller.instanceId} | ${
+              conversation?.isGroup ? "Grupo" : "Individual"
+          } | ${conversation?.participantDisplay || conversation?.contactPhone || conversationId}`
+        : conversationId;
 
     setComposerAvailability(seller);
 
     const params = new URLSearchParams();
     params.set("limit", "120");
+    params.set("conversationId", conversationId);
     const receivedAfter = getReceivedAfterFromRange();
     if (receivedAfter) {
         params.set("receivedAfter", receivedAfter);
@@ -689,16 +755,64 @@ async function loadMessagesForInstance(instanceId) {
         state.messages = payload.data || [];
         state.selectedOriginTag = payload.originTag || null;
 
-        dom.conversationMeta.textContent = payload.originTag
-            ? `${seller?.phoneNumber || "-"} | ${payload.originTag}`
-            : seller?.phoneNumber || "Instancia selecionada";
-
         renderMessages();
-        prefillRecipientFromMessages();
+        prefillRecipientFromConversation(conversation);
     } catch (error) {
         handleApiError(error);
-        renderEmptyConversation("Nao foi possivel carregar as mensagens desta instancia.");
+        renderEmptyConversation("Nao foi possivel carregar as mensagens desta conversa.");
     }
+}
+
+function renderThreads() {
+    dom.threadsCounter.textContent = String(state.conversations.length);
+
+    if (!state.conversations.length) {
+        dom.threadsList.innerHTML = '<div class="empty-state">Sem conversas.</div>';
+        return;
+    }
+
+    dom.threadsList.innerHTML = state.conversations
+        .map((item) => {
+            const active = item.conversationId === state.selectedConversationId ? "active" : "";
+            const preview = item.lastTextBody || getMessageTypeLabel(item.lastMessageType);
+            const title = item.displayName || item.contactDisplay || item.contactPhone || item.conversationId;
+            const subtitle = item.isGroup
+                ? `Grupo | ultimo: ${item.participantDisplay || "participante"}`
+                : "Individual";
+
+            return `
+        <button class="thread-item ${active}" type="button" data-conversation-id="${escapeHtml(item.conversationId)}">
+          <span class="thread-topline">
+            ${renderAvatar(item.avatarUrl, title, "thread-avatar")}
+            <span class="thread-copy">
+              <span class="thread-title">${escapeHtml(title)}</span>
+              <span class="thread-sub">${escapeHtml(subtitle)}</span>
+            </span>
+          </span>
+          <span class="thread-preview">${Number(item.totalMessages || 0)} msgs | ${formatDateTime(item.lastMessageAt)}</span>
+          <span class="thread-preview">${escapeHtml(preview.slice(0, 72))}</span>
+        </button>
+      `;
+        })
+        .join("");
+}
+
+async function onThreadItemClick(event) {
+    const threadButton = event.target.closest("[data-conversation-id]");
+    if (!threadButton || !state.selectedInstanceId) {
+        return;
+    }
+
+    const conversationId = threadButton.getAttribute("data-conversation-id");
+    if (!conversationId || conversationId === state.selectedConversationId) {
+        return;
+    }
+
+    await loadMessagesForConversation(state.selectedInstanceId, conversationId);
+}
+
+function getConversationById(conversationId) {
+    return state.conversations.find((item) => item.conversationId === conversationId) || null;
 }
 
 function setComposerAvailability(seller) {
@@ -729,16 +843,23 @@ function renderMessages() {
             const outgoing = Boolean(message.fromMe);
             const cssClass = outgoing ? "outgoing" : "incoming";
             const author = outgoing
-                ? "Saida da instancia"
-                : normalizeJid(message.fromJid || message.chatJid || "Contato");
-            const body = message.textBody || `[${message.messageType || "mensagem"}]`;
+                ? message.isGroup
+                    ? message.contactDisplay || "Saida da instancia"
+                    : "Saida da instancia"
+                : message.contactDisplay || normalizeJid(message.fromJid || message.chatJid || "Contato");
+            const body = message.textBody || getMessageTypeLabel(message.messageType);
 
             return `
         <article class="message-item ${cssClass}">
-          <div class="message-meta">
-            <span>${escapeHtml(author)}</span>
+          <div class="message-meta message-meta-rich">
+            ${renderAvatar(message.avatarUrl, author, "message-avatar")}
+            <span class="message-author-block">
+              <span>${escapeHtml(author)}</span>
+              <span class="message-context">${escapeHtml(message.isGroup ? message.groupName || "Grupo" : "Individual")}</span>
+            </span>
             <span>${formatDateTime(message.receivedAt)}</span>
           </div>
+          ${renderMessageMedia(message)}
           <div class="message-body">${escapeHtml(body)}</div>
         </article>
       `;
@@ -752,18 +873,64 @@ function renderEmptyConversation(message) {
     dom.messagesFeed.innerHTML = `<div class="empty-state">${escapeHtml(message)}</div>`;
 }
 
+function renderAvatar(avatarUrl, label, className) {
+    if (avatarUrl) {
+        return `<img class="${className}" src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(label || "Avatar")}" loading="lazy" />`;
+    }
+
+    const initial = String(label || "?").trim().charAt(0).toUpperCase() || "?";
+    return `<span class="${className} avatar-fallback">${escapeHtml(initial)}</span>`;
+}
+
 function prefillRecipientFromMessages() {
     if (dom.recipientInput.value.trim()) {
         return;
     }
 
-    const inboundMessage = state.messages.find((item) => !item.fromMe && (item.fromJid || item.chatJid));
+    const inboundMessage = state.messages.find(
+        (item) => !item.fromMe && (item.contactPhone || item.contactJid || item.fromJid || item.chatJid)
+    );
     if (!inboundMessage) {
         return;
     }
 
-    const candidate = inboundMessage.fromJid || inboundMessage.chatJid;
+    const candidate = inboundMessage.contactPhone || inboundMessage.contactJid || inboundMessage.fromJid || inboundMessage.chatJid;
     dom.recipientInput.value = normalizePhone(candidate);
+}
+
+function renderMessageMedia(message) {
+    if (message.mediaThumbnail) {
+        return `<img class="message-media" src="${escapeHtml(message.mediaThumbnail)}" alt="Imagem recebida" />`;
+    }
+
+    if (message.mediaType === "image") {
+        return '<div class="message-media-placeholder">Imagem recebida sem miniatura disponivel</div>';
+    }
+
+    return "";
+}
+
+function getMessageTypeLabel(messageType) {
+    const labels = {
+        imageMessage: "Imagem",
+        videoMessage: "Video",
+        audioMessage: "Audio",
+        stickerMessage: "Figurinha",
+        documentMessage: "Documento",
+    };
+
+    return labels[messageType] || "Mensagem sem texto";
+}
+
+function prefillRecipientFromConversation(conversation) {
+    dom.recipientInput.value = "";
+
+    if (conversation?.contactPhone || conversation?.contactJid) {
+        dom.recipientInput.value = normalizePhone(conversation.contactPhone || conversation.contactJid);
+        return;
+    }
+
+    prefillRecipientFromMessages();
 }
 
 async function onSendSubmit(event) {
@@ -813,7 +980,7 @@ function onRangeSelected(range) {
     });
 
     if (state.selectedInstanceId) {
-        loadMessagesForInstance(state.selectedInstanceId);
+        loadConversationsForInstance(state.selectedInstanceId, { preserveConversation: true });
     }
 }
 
@@ -866,7 +1033,9 @@ function clearSession() {
     state.origins = [];
     state.audits = [];
     state.messages = [];
+    state.conversations = [];
     state.selectedInstanceId = null;
+    state.selectedConversationId = null;
     state.selectedOriginTag = null;
     setSellerFormCreateMode();
     hideQrCard();

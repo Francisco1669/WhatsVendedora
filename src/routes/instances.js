@@ -6,6 +6,7 @@ const {
     listInstances,
     getInstanceById,
     listInboundMessages,
+    listInstanceConversations,
     saveOutboundMessage,
     deleteInstancePermanently,
     recordAdminAudit,
@@ -80,6 +81,111 @@ function hasUsefulQrData(qrData) {
 
 function wait(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getProfileNumber(item) {
+    if (item.contactPhone) {
+        return item.contactPhone;
+    }
+
+    if (item.contactJid && !item.contactJid.includes("@lid")) {
+        return item.contactJid;
+    }
+
+    return null;
+}
+
+async function tryFetchProfilePicture(instanceName, number) {
+    if (!number || !evolutionClient.isConfigured()) {
+        return null;
+    }
+
+    try {
+        const profile = await evolutionClient.fetchProfilePictureUrl(instanceName, number);
+        return profile?.profilePictureUrl || null;
+    } catch (error) {
+        return null;
+    }
+}
+
+async function tryFetchGroupInfo(instanceName, groupJid) {
+    if (!groupJid || !evolutionClient.isConfigured()) {
+        return null;
+    }
+
+    try {
+        return await evolutionClient.fetchGroupInfo(instanceName, groupJid);
+    } catch (error) {
+        return null;
+    }
+}
+
+async function enrichConversation(instance, conversation) {
+    if (conversation.isGroup) {
+        const groupInfo = await tryFetchGroupInfo(instance.evolutionInstance, conversation.conversationId);
+        const groupAvatarUrl =
+            groupInfo?.pictureUrl ||
+            (await tryFetchProfilePicture(instance.evolutionInstance, conversation.conversationId));
+
+        return {
+            ...conversation,
+            groupName: groupInfo?.subject || null,
+            groupAvatarUrl,
+            avatarUrl: groupAvatarUrl,
+            displayName: groupInfo?.subject || "Grupo sem nome",
+            participantDisplay: conversation.contactDisplay,
+            participantAvatarUrl: await tryFetchProfilePicture(
+                instance.evolutionInstance,
+                getProfileNumber(conversation)
+            ),
+        };
+    }
+
+    const avatarUrl = await tryFetchProfilePicture(instance.evolutionInstance, getProfileNumber(conversation));
+    return {
+        ...conversation,
+        avatarUrl,
+        displayName: conversation.contactDisplay,
+    };
+}
+
+async function enrichMessage(instance, message, groupCache = new Map(), avatarCache = new Map()) {
+    let chatAvatarUrl = null;
+    let groupName = null;
+
+    if (message.isGroup) {
+        if (!groupCache.has(message.conversationId)) {
+            groupCache.set(
+                message.conversationId,
+                await tryFetchGroupInfo(instance.evolutionInstance, message.conversationId)
+            );
+        }
+
+        const groupInfo = groupCache.get(message.conversationId);
+        groupName = groupInfo?.subject || null;
+        chatAvatarUrl =
+            groupInfo?.pictureUrl ||
+            (await tryFetchProfilePicture(instance.evolutionInstance, message.conversationId));
+    }
+
+    const profileNumber = getProfileNumber(message);
+    if (profileNumber && !avatarCache.has(profileNumber)) {
+        avatarCache.set(
+            profileNumber,
+            await tryFetchProfilePicture(instance.evolutionInstance, profileNumber)
+        );
+    }
+
+    const senderAvatarUrl = profileNumber ? avatarCache.get(profileNumber) : null;
+
+    return {
+        ...message,
+        groupName,
+        chatAvatarUrl,
+        senderAvatarUrl,
+        avatarUrl: message.isGroup ? senderAvatarUrl || chatAvatarUrl : senderAvatarUrl,
+        displayName: message.isGroup ? message.contactDisplay : message.contactDisplay,
+    };
 }
 
 router.post(
@@ -353,6 +459,33 @@ router.post(
 );
 
 router.get(
+    "/instances/:instanceId/conversations",
+    asyncHandler(async (req, res) => {
+        const instance = getInstanceById(req.params.instanceId);
+        if (!instance) {
+            res.status(404).json({ error: "Instancia nao encontrada." });
+            return;
+        }
+
+        const query = instanceMessagesQuerySchema.parse(req.query || {});
+        const conversations = listInstanceConversations({
+            instanceId: instance.id,
+            receivedAfter: query.receivedAfter,
+        });
+        const data = await Promise.all(
+            conversations.slice(0, 80).map((conversation) => enrichConversation(instance, conversation))
+        );
+
+        res.json({
+            instanceId: instance.id,
+            originTag: `${instance.id}:${instance.phoneNumber}`,
+            count: data.length,
+            data,
+        });
+    })
+);
+
+router.get(
     "/instances/:instanceId/messages",
     asyncHandler(async (req, res) => {
         const instance = getInstanceById(req.params.instanceId);
@@ -368,16 +501,23 @@ router.get(
         );
         const offset = Math.max(0, Number(query.offset || 0));
 
-        const data = listInboundMessages({
+        const messages = listInboundMessages({
             instanceId: instance.id,
+            conversationId: query.conversationId,
             receivedAfter: query.receivedAfter,
             limit,
             offset,
         });
+        const groupCache = new Map();
+        const avatarCache = new Map();
+        const data = await Promise.all(
+            messages.map((message) => enrichMessage(instance, message, groupCache, avatarCache))
+        );
 
         res.json({
             instanceId: instance.id,
             originTag: `${instance.id}:${instance.phoneNumber}`,
+            conversationId: query.conversationId || null,
             count: data.length,
             data,
         });

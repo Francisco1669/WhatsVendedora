@@ -132,7 +132,19 @@
             </div>
           </div>
 
-          <div id="messagesFeed" class="messages-feed"></div>
+          <div class="conversation-layout">
+            <aside class="threads-panel">
+              <div class="panel-header">
+                <h4>Conversas</h4>
+                <span id="threadsCounter" class="chip">0</span>
+              </div>
+              <div id="threadsList" class="threads-list"></div>
+            </aside>
+
+            <div class="messages-column">
+              <div id="messagesFeed" class="messages-feed"></div>
+            </div>
+          </div>
 
           <form id="sendForm" class="composer">
             <div class="composer-grid">

@@ -23,6 +23,7 @@ function buildBaseUrls(url) {
 class EvolutionClient {
     constructor() {
         this.baseUrls = buildBaseUrls(env.EVOLUTION_API_URL);
+        this.profileCache = new Map();
     }
 
     isConfigured() {
@@ -265,6 +266,68 @@ class EvolutionClient {
             ],
             "sendTextMessage"
         );
+    }
+
+    getCachedValue(key) {
+        const cached = this.profileCache.get(key);
+        if (!cached || cached.expiresAt < Date.now()) {
+            this.profileCache.delete(key);
+            return null;
+        }
+
+        return cached.value;
+    }
+
+    setCachedValue(key, value, ttlMs = 10 * 60 * 1000) {
+        this.profileCache.set(key, {
+            value,
+            expiresAt: Date.now() + ttlMs,
+        });
+        return value;
+    }
+
+    async fetchProfilePictureUrl(instanceName, number) {
+        const safeInstance = encodeURIComponent(instanceName);
+        const cacheKey = `profile-picture:${instanceName}:${number}`;
+        const cached = this.getCachedValue(cacheKey);
+        if (cached) {
+            return cached;
+        }
+
+        const result = await this.runFallbackRequests(
+            [
+                {
+                    method: "post",
+                    url: `/chat/fetchProfilePictureUrl/${safeInstance}`,
+                    data: { number },
+                },
+            ],
+            "fetchProfilePictureUrl"
+        );
+
+        return this.setCachedValue(cacheKey, result);
+    }
+
+    async fetchGroupInfo(instanceName, groupJid) {
+        const safeInstance = encodeURIComponent(instanceName);
+        const cacheKey = `group-info:${instanceName}:${groupJid}`;
+        const cached = this.getCachedValue(cacheKey);
+        if (cached) {
+            return cached;
+        }
+
+        const result = await this.runFallbackRequests(
+            [
+                {
+                    method: "get",
+                    url: `/group/findGroupInfos/${safeInstance}`,
+                    params: { groupJid },
+                },
+            ],
+            "fetchGroupInfo"
+        );
+
+        return this.setCachedValue(cacheKey, result);
     }
 }
 

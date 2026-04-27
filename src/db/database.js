@@ -32,6 +32,221 @@ function parseJsonSafe(value) {
   }
 }
 
+function normalizeJidValue(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function normalizePhoneValue(value) {
+  const jid = normalizeJidValue(value);
+  if (!jid) {
+    return null;
+  }
+
+  if (jid.includes("@g.us")) {
+    return null;
+  }
+
+  const phone = jid.replace(/@.*/, "").replace(/[^0-9+]/g, "");
+  return phone || null;
+}
+
+function jidLooksInternal(value) {
+  const jid = normalizeJidValue(value);
+  return !jid || jid.includes("@lid") || jid.includes("@g.us");
+}
+
+function pickMessageEnvelope(rawPayload) {
+  const payload = parseJsonSafe(rawPayload) || {};
+  const data = payload.data;
+
+  if (Array.isArray(data)) {
+    return data[0] || {};
+  }
+
+  if (data && typeof data === "object") {
+    if (Array.isArray(data.messages)) {
+      return data.messages[0] || {};
+    }
+
+    return data;
+  }
+
+  return payload;
+}
+
+function isUsefulPushName(value) {
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.toLowerCase() === "voce" || trimmed.toLowerCase() === "você") {
+    return false;
+  }
+
+  return !/^\d{8,}$/.test(trimmed);
+}
+
+function getMessageContactDetails(row) {
+  const envelope = pickMessageEnvelope(row.rawPayload);
+  const key = envelope?.key || {};
+  const fromMe = Boolean(row.fromMe);
+  const conversationId =
+    normalizeJidValue(row.chatJid) ||
+    normalizeJidValue(key.remoteJid) ||
+    normalizeJidValue(envelope?.remoteJid) ||
+    normalizeJidValue(row.fromJid) ||
+    normalizeJidValue(row.toJid) ||
+    "unknown";
+
+  const preferredJid = fromMe
+    ? normalizeJidValue(row.toJid) || normalizeJidValue(key.remoteJidAlt) || null
+    : normalizeJidValue(key.participantAlt) ||
+      normalizeJidValue(envelope?.participantAlt) ||
+      normalizeJidValue(key.remoteJidAlt) ||
+      normalizeJidValue(envelope?.remoteJidAlt) ||
+      (jidLooksInternal(row.fromJid) ? null : normalizeJidValue(row.fromJid));
+
+  const contactPhone = normalizePhoneValue(preferredJid);
+  const contactName = isUsefulPushName(envelope?.pushName) ? envelope.pushName.trim() : null;
+  const isGroup = conversationId.includes("@g.us");
+  const contactDisplay = contactName
+    ? contactPhone
+      ? `${contactName} (${contactPhone})`
+      : contactName
+    : contactPhone || (isGroup ? "Grupo" : "Contato sem numero");
+
+  return {
+    conversationId,
+    isGroup: conversationId.includes("@g.us"),
+    conversationType: conversationId.includes("@g.us") ? "group" : "individual",
+    contactJid: preferredJid,
+    contactPhone,
+    contactName,
+    contactDisplay,
+  };
+}
+
+function objectBytesToBase64(value) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const keys = Object.keys(value);
+  if (keys.length === 0 || !keys.every((key) => /^\d+$/.test(key))) {
+    return null;
+  }
+
+  const bytes = keys
+    .sort((left, right) => Number(left) - Number(right))
+    .map((key) => Number(value[key]));
+
+  return Buffer.from(bytes).toString("base64");
+}
+
+function getMessageMediaDetails(rawPayload) {
+  const envelope = pickMessageEnvelope(rawPayload);
+  const message = envelope?.message || {};
+  const image = message.imageMessage;
+
+  if (!image) {
+    return {
+      mediaType: null,
+      mediaUrl: null,
+      mediaThumbnail: null,
+      mediaMimeType: null,
+    };
+  }
+
+  const thumbnail = objectBytesToBase64(image.jpegThumbnail);
+  return {
+    mediaType: "image",
+    mediaUrl: image.url || null,
+    mediaThumbnail: thumbnail ? `data:image/jpeg;base64,${thumbnail}` : null,
+    mediaMimeType: image.mimetype || "image/jpeg",
+  };
+}
+
+function hasRenderableContent(message) {
+  return Boolean(
+    (message.textBody && String(message.textBody).trim()) ||
+      message.mediaThumbnail ||
+      message.mediaUrl
+  );
+}
+
+function getMentionLabel(message) {
+  if (message.contactName) {
+    return message.contactName;
+  }
+
+  if (message.contactPhone) {
+    return message.contactPhone;
+  }
+
+  return null;
+}
+
+function applyMentionLabels(messages) {
+  const mentionLabels = new Map();
+
+  for (const message of messages) {
+    for (const jid of [message.fromJid, message.contactJid]) {
+      const normalized = normalizeJidValue(jid);
+      const label = getMentionLabel(message);
+      if (normalized?.includes("@lid") && label) {
+        mentionLabels.set(normalized.replace(/@.*/, ""), label);
+      }
+    }
+  }
+
+  if (mentionLabels.size === 0) {
+    return messages;
+  }
+
+  return messages.map((message) => {
+    if (!message.textBody) {
+      return message;
+    }
+
+    const textBody = String(message.textBody).replace(/@(\d{8,})/g, (match, id) => {
+      const label = mentionLabels.get(id);
+      return label ? `@${label}` : "@contato sem numero";
+    });
+
+    return {
+      ...message,
+      textBody,
+    };
+  });
+}
+
+function decorateInboundMessage(row) {
+  const { rawPayload, ...message } = row;
+  const envelope = pickMessageEnvelope(rawPayload);
+  const messageType =
+    ["messageContextInfo", "senderKeyDistributionMessage", "unknown"].includes(message.messageType) &&
+    envelope?.messageType
+      ? envelope.messageType
+      : message.messageType;
+  const decorated = {
+    ...message,
+    messageType,
+    ...getMessageContactDetails(row),
+    ...getMessageMediaDetails(rawPayload),
+  };
+
+  return {
+    ...decorated,
+    displayable: hasRenderableContent(decorated),
+  };
+}
+
 function initializeDatabase() {
   if (state.db) {
     return state.db;
@@ -510,6 +725,11 @@ function listInboundMessages(filters) {
     params.instanceId = filters.instanceId;
   }
 
+  if (filters.conversationId) {
+    clauses.push("(chat_jid = @conversationId OR from_jid = @conversationId OR to_jid = @conversationId)");
+    params.conversationId = filters.conversationId;
+  }
+
   if (filters.originTag) {
     clauses.push("origin_tag = @originTag");
     params.originTag = filters.originTag;
@@ -535,6 +755,7 @@ function listInboundMessages(filters) {
       from_me AS fromMe,
       message_type AS messageType,
       text_body AS textBody,
+      raw_payload AS rawPayload,
       received_at AS receivedAt
     FROM inbound_messages
     ${whereClause}
@@ -542,7 +763,94 @@ function listInboundMessages(filters) {
     LIMIT @limit OFFSET @offset
   `;
 
-  return db.prepare(query).all(params);
+  return applyMentionLabels(
+    db.prepare(query).all(params).map(decorateInboundMessage).filter((row) => row.displayable)
+  );
+}
+
+function listInstanceConversations(filters) {
+  const { db } = ensureInitialized();
+  const clauses = ["instance_id = @instanceId"];
+  const params = {
+    instanceId: filters.instanceId,
+  };
+
+  if (filters.receivedAfter) {
+    clauses.push("received_at >= @receivedAfter");
+    params.receivedAfter = filters.receivedAfter;
+  }
+
+  const rows = applyMentionLabels(
+    db
+    .prepare(
+      `
+      SELECT
+        id,
+        evolution_message_id AS evolutionMessageId,
+        instance_id AS instanceId,
+        origin_tag AS originTag,
+        origin_phone AS originPhone,
+        event_name AS eventName,
+        chat_jid AS chatJid,
+        from_jid AS fromJid,
+        to_jid AS toJid,
+        from_me AS fromMe,
+        message_type AS messageType,
+        text_body AS textBody,
+        raw_payload AS rawPayload,
+        received_at AS receivedAt
+      FROM inbound_messages
+      WHERE ${clauses.join(" AND ")}
+      ORDER BY received_at DESC, id DESC
+      LIMIT 1000
+    `
+    )
+    .all(params)
+    .map(decorateInboundMessage)
+  );
+
+  const grouped = new Map();
+  for (const row of rows.filter((item) => item.displayable)) {
+    const conversationId = row.conversationId || row.contactJid || "unknown";
+    const existing = grouped.get(conversationId);
+
+    if (!existing) {
+      grouped.set(conversationId, {
+        conversationId,
+        isGroup: Boolean(row.isGroup),
+        conversationType: row.conversationType,
+        contactJid: row.contactJid,
+        contactPhone: row.contactPhone,
+        contactName: row.contactName,
+        contactDisplay: row.contactDisplay,
+        displayName: row.isGroup ? "Grupo" : row.contactDisplay,
+        lastMessageAt: row.receivedAt,
+        lastTextBody: row.textBody,
+        lastMessageType: row.messageType,
+        totalMessages: 1,
+      });
+      continue;
+    }
+
+    existing.totalMessages += 1;
+    if (!existing.contactPhone && row.contactPhone) {
+      existing.contactPhone = row.contactPhone;
+    }
+    if (!existing.contactName && row.contactName) {
+      existing.contactName = row.contactName;
+    }
+    if (
+      existing.contactDisplay === existing.conversationId.replace(/@.*/, "") &&
+      row.contactDisplay
+    ) {
+      existing.contactDisplay = row.contactDisplay;
+    }
+    if (existing.displayName === "Grupo" && row.isGroup) {
+      existing.displayName = "Grupo";
+    }
+  }
+
+  return Array.from(grouped.values());
 }
 
 function listOrigins() {
@@ -723,6 +1031,7 @@ module.exports = {
   saveInboundMessage,
   saveOutboundMessage,
   listInboundMessages,
+  listInstanceConversations,
   listOrigins,
   getAdminUserByEmail,
   getAdminUserById,

@@ -53,7 +53,7 @@ function extractTextBody(messageObject) {
 }
 
 function extractMessageType(messageObject) {
-    const keys = Object.keys(messageObject || {});
+    const keys = Object.keys(messageObject || {}).filter((key) => key !== "messageContextInfo");
     return keys.length > 0 ? keys[0] : "unknown";
 }
 
@@ -109,6 +109,7 @@ function normalizeInboundPayload({ payload, instanceRecord, routeInstanceId, hea
         payload?.remoteJid
     );
     const fromJid = pickString(
+        key?.participantAlt,
         key?.participant,
         key?.remoteJid,
         envelope?.participant,
@@ -118,7 +119,7 @@ function normalizeInboundPayload({ payload, instanceRecord, routeInstanceId, hea
     const fromMe = Boolean(key?.fromMe || envelope?.fromMe || payload?.fromMe);
     const toJid = fromMe ? chatJid : instanceRecord.phoneNumber;
 
-    const messageType = extractMessageType(messageObject);
+    const messageType = pickString(envelope?.messageType, payload?.messageType) || extractMessageType(messageObject);
     const textBody = extractTextBody(messageObject);
     const extractedMessageId = pickString(key?.id, envelope?.id, payload?.id);
 
