@@ -1,4 +1,4 @@
-# Multi-instance WhatsApp Manager (Evolution API)
+# Multi-instance WhatsApp Manager (EvoAPI Cloud / Evolution API)
 
 Backend Node.js para gerenciar 6 a 8 instancias de WhatsApp sem misturar a origem das mensagens.
 
@@ -19,7 +19,7 @@ Agora o backend inclui autenticacao JWT para uso administrativo da dona, com sup
 ## Stack
 
 - Node.js + Express
-- Evolution API (ou API similar compativel)
+- EvoAPI Cloud ou Evolution API v2 self-hosted
 - SQLite (`better-sqlite3`) para auditoria local
 
 ## Setup
@@ -27,12 +27,13 @@ Agora o backend inclui autenticacao JWT para uso administrativo da dona, com sup
 1. Copie `.env.example` para `.env`.
 2. Ajuste as variaveis:
 
+Para EvoAPI Cloud:
+
 ```env
 PORT=3333
-EVOLUTION_API_URL=http://127.0.0.1:8080
-EVOLUTION_API_KEY=change-me
-PUBLIC_WEBHOOK_BASE_URL=https://your-public-url
-EVOLUTION_WEBHOOK_GLOBAL_URL=https://your-public-url/webhooks/evolution
+EVOAPICLOUD_API_URL=https://your-evoapicloud-server-url
+EVOAPICLOUD_API_KEY=change-me
+PUBLIC_WEBHOOK_BASE_URL=https://your-public-backend-url
 DB_PATH=./data/multi-instance.db
 AUTH_JWT_SECRET=change-this-secret
 AUTH_JWT_EXPIRES_IN=12h
@@ -40,6 +41,10 @@ OWNER_BOOTSTRAP_NAME=Dona
 OWNER_BOOTSTRAP_EMAIL=dona@empresa.com
 OWNER_BOOTSTRAP_PASSWORD=change-this-password
 ```
+
+O app tambem aceita os aliases antigos `EVOLUTION_API_URL`,
+`EVOLUTION_API_KEY` e `EVOLUTION_GLOBAL_WEBHOOK_SECRET`, para manter
+compatibilidade com configuracoes locais ja existentes.
 
 Na primeira inicializacao, se `OWNER_BOOTSTRAP_EMAIL` e `OWNER_BOOTSTRAP_PASSWORD` estiverem definidos, a conta administrativa da dona e criada automaticamente.
 
@@ -55,6 +60,24 @@ npm install
 npm run dev
 ```
 
+## Rodar tudo localmente
+
+Com Docker Desktop instalado e aberto:
+
+```powershell
+npm run local
+```
+
+Esse comando sobe a Evolution API local pelo `docker-compose.evolution.yml`
+e inicia o backend em `http://localhost:3333`.
+
+Se preferir subir por etapas:
+
+```powershell
+npm run evolution:up
+npm run dev
+```
+
 ## Subir Evolution com Docker (local)
 
 1. Defina variaveis para o `docker-compose.evolution.yml` no terminal (PowerShell):
@@ -62,6 +85,7 @@ npm run dev
 ```powershell
 $env:EVOLUTION_API_KEY = "troque-por-uma-chave-forte"
 $env:EVOLUTION_WEBHOOK_GLOBAL_URL = "http://host.docker.internal:3333/webhooks/evolution"
+$env:EVOLUTION_WEBHOOK_GLOBAL_ENABLED = "true"
 ```
 
 2. Suba a Evolution:
@@ -77,6 +101,7 @@ EVOLUTION_API_URL=http://127.0.0.1:8080
 EVOLUTION_API_KEY=troque-por-uma-chave-forte
 PUBLIC_WEBHOOK_BASE_URL=http://host.docker.internal:3333
 EVOLUTION_WEBHOOK_GLOBAL_URL=http://host.docker.internal:3333/webhooks/evolution
+EVOLUTION_WEBHOOK_GLOBAL_ENABLED=true
 ```
 
 4. Suba o app:
@@ -92,6 +117,7 @@ Observacoes:
 - Cada instancia da Evolution representa uma vendedora (1 numero por instancia).
 - O backend cria webhooks por instancia automaticamente ao cadastrar/provisionar.
 - Se `docker compose` falhar por variaveis diferentes da sua versao, ajuste `docker-compose.evolution.yml`.
+- Para EvoAPI Cloud, nao use o `docker-compose.evolution.yml`; configure `EVOAPICLOUD_API_URL`, `EVOAPICLOUD_API_KEY` e uma `PUBLIC_WEBHOOK_BASE_URL` HTTPS publica.
 
 ## Painel amigavel da dona
 
@@ -214,13 +240,23 @@ Mantem dados no banco, mas desativa a instancia (`active=false`, `status=inactiv
 }
 ```
 
-### 5) Receber webhook por instancia
+### 5) Receber webhook
 
 `POST /webhooks/evolution/:instanceId`
 
 Use header:
 
 - `x-webhook-token: <token-da-instancia>`
+
+Tambem sao aceitos `apikey` com a chave da Evolution ou `token` na query
+quando voce configurar `EVOLUTION_GLOBAL_WEBHOOK_SECRET`.
+
+Para webhook global da Evolution, tambem e aceito:
+
+`POST /webhooks/evolution`
+
+Nesse formato o payload precisa trazer `instance` ou `instanceName`
+correspondente ao cadastro local, ou o header `x-evolution-instance`.
 
 ### 6) Consultar mensagens por instancia
 

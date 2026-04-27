@@ -10,9 +10,14 @@ function parseNumber(value, fallbackValue) {
 module.exports = {
     NODE_ENV: process.env.NODE_ENV || "development",
     PORT: parseNumber(process.env.PORT, 3333),
-    EVOLUTION_API_URL: process.env.EVOLUTION_API_URL || "",
-    EVOLUTION_API_KEY: process.env.EVOLUTION_API_KEY || "",
-    EVOLUTION_GLOBAL_WEBHOOK_SECRET: process.env.EVOLUTION_GLOBAL_WEBHOOK_SECRET || "",
+    EVOLUTION_API_URL: process.env.EVOAPICLOUD_API_URL || process.env.EVOLUTION_API_URL || "",
+    EVOLUTION_API_KEY: process.env.EVOAPICLOUD_API_KEY || process.env.EVOLUTION_API_KEY || "",
+    EVOLUTION_GLOBAL_WEBHOOK_SECRET:
+        process.env.EVOAPICLOUD_GLOBAL_WEBHOOK_SECRET ||
+        process.env.EVOLUTION_GLOBAL_WEBHOOK_SECRET ||
+        "",
+    EVOLUTION_MANAGER_URL:
+        process.env.EVOAPICLOUD_MANAGER_URL || process.env.EVOLUTION_MANAGER_URL || "",
     PUBLIC_WEBHOOK_BASE_URL: process.env.PUBLIC_WEBHOOK_BASE_URL || "",
     DB_PATH: process.env.DB_PATH || path.join(process.cwd(), "data", "multi-instance.db"),
     AUTH_JWT_SECRET: process.env.AUTH_JWT_SECRET || "",

@@ -65,7 +65,7 @@ services:
       # Ajuste para um valor valido na sua rede.
       # Em Windows + Docker Desktop, host.docker.internal costuma funcionar.
       WEBHOOK_GLOBAL_URL: "${EVOLUTION_WEBHOOK_GLOBAL_URL}"
-      WEBHOOK_GLOBAL_ENABLED: "false"
+      WEBHOOK_GLOBAL_ENABLED: "${EVOLUTION_WEBHOOK_GLOBAL_ENABLED:-true}"
       WEBHOOK_GLOBAL_WEBHOOK_BY_EVENTS: "false"
       WEBHOOK_EVENTS_APPLICATION_STARTUP: "false"
       WEBHOOK_EVENTS_QRCODE_UPDATED: "true"

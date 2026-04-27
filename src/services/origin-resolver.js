@@ -177,6 +177,7 @@ function extractConnectionStatus(payload, eventName) {
 
 module.exports = {
     extractEventName,
+    extractPayloadInstanceName,
     normalizeInboundPayload,
     isMessageEvent,
     extractConnectionStatus,

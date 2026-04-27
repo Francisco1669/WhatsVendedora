@@ -31,7 +31,9 @@ class EvolutionClient {
 
     ensureConfigured() {
         if (!this.isConfigured()) {
-            const error = new Error("Evolution API nao configurada. Ajuste EVOLUTION_API_URL e EVOLUTION_API_KEY.");
+            const error = new Error(
+                "EvoAPI Cloud/Evolution API nao configurada. Ajuste EVOAPICLOUD_API_URL e EVOAPICLOUD_API_KEY."
+            );
             error.status = 503;
             throw error;
         }
@@ -97,21 +99,24 @@ class EvolutionClient {
         const webhookConfig = {
             enabled: true,
             url: webhookUrl,
+            byEvents: false,
+            base64: false,
             webhookByEvents: false,
             webhookBase64: false,
             events: ["MESSAGES_UPSERT", "CONNECTION_UPDATE", "QRCODE_UPDATED"],
         };
 
+        if (webhookToken) {
+            webhookConfig.headers = {
+                "x-webhook-token": webhookToken,
+            };
+        }
+
         const payloads = [
-            webhookConfig,
             {
-                webhook: {
-                    ...webhookConfig,
-                    headers: {
-                        "x-webhook-token": webhookToken,
-                    },
-                },
+                webhook: webhookConfig,
             },
+            webhookConfig,
         ];
 
         return this.runFallbackRequests(
@@ -142,19 +147,11 @@ class EvolutionClient {
             instanceName,
             token: webhookToken,
             qrcode: true,
-            integration: "WHATSAPP-BAILEYS",
-            webhook: webhookUrl
-                ? {
-                    enabled: true,
-                    url: webhookUrl,
-                    webhookByEvents: false,
-                    webhookBase64: false,
-                    events: ["MESSAGES_UPSERT", "CONNECTION_UPDATE", "QRCODE_UPDATED"],
-                    headers: {
-                        "x-webhook-token": webhookToken,
-                    },
-                }
-                : undefined,
+            Integration: "WHATSAPP-BAILEYS",
+            webhookUrl,
+            webhookByEvents: false,
+            webhookBase64: false,
+            webhookEvents: ["MESSAGES_UPSERT", "CONNECTION_UPDATE", "QRCODE_UPDATED"],
         };
 
         const createResult = await this.runFallbackRequests(
@@ -181,9 +178,13 @@ class EvolutionClient {
             "provisionInstance"
         );
 
+        const webhookResult = webhookUrl
+            ? await this.configureWebhook(instanceName, webhookUrl, webhookToken)
+            : null;
+
         return {
             createResult,
-            webhookResult: null,
+            webhookResult,
         };
     }
 
