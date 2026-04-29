@@ -24,14 +24,14 @@ router.post(
             return;
         }
 
-        const adminUser = getAdminUserByEmail(payload.email);
+        const adminUser = await getAdminUserByEmail(payload.email);
         const isValidPassword =
             adminUser && adminUser.active
                 ? comparePassword(payload.password, adminUser.passwordHash)
                 : false;
 
         if (!isValidPassword) {
-            recordAdminAudit({
+            await recordAdminAudit({
                 adminUserId: adminUser?.id || null,
                 action: "AUTH_LOGIN_FAILED",
                 metadata: {
@@ -49,7 +49,7 @@ router.post(
 
         const accessToken = signAccessToken(adminUser);
 
-        recordAdminAudit({
+        await recordAdminAudit({
             adminUserId: adminUser.id,
             action: "AUTH_LOGIN_SUCCESS",
             metadata: {

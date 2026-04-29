@@ -18,7 +18,7 @@ router.get(
         const limit = Math.min(parsedQuery.limit || env.DEFAULT_PAGE_SIZE, env.MAX_PAGE_SIZE);
         const offset = parsedQuery.offset || 0;
 
-        const data = listInboundMessages({
+        const data = await listInboundMessages({
             instanceId: parsedQuery.instanceId,
             originTag: parsedQuery.originTag,
             receivedAfter: parsedQuery.receivedAfter,
@@ -43,7 +43,7 @@ router.get(
 router.get(
     "/seller-summary",
     asyncHandler(async (req, res) => {
-        const data = listSellerSummaries();
+        const data = await listSellerSummaries();
         res.json({
             totalSellers: data.length,
             data,
@@ -54,7 +54,7 @@ router.get(
 router.get(
     "/messages/origins",
     asyncHandler(async (req, res) => {
-        const data = listOrigins();
+        const data = await listOrigins();
         res.json({
             totalOrigins: data.length,
             data,
@@ -69,7 +69,7 @@ router.get(
         const limit = Math.min(parsedQuery.limit || env.DEFAULT_PAGE_SIZE, env.MAX_PAGE_SIZE);
         const offset = parsedQuery.offset || 0;
 
-        const data = listAdminAudits({
+        const data = await listAdminAudits({
             adminUserId: parsedQuery.adminUserId,
             instanceId: parsedQuery.instanceId,
             limit,

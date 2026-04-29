@@ -1,4 +1,37 @@
 services:
+  whatsvendedora-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: whatsvendedora-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      evolution-postgres:
+        condition: service_healthy
+      evolution-redis:
+        condition: service_started
+    ports:
+      - "3333:3333"
+    environment:
+      NODE_ENV: "production"
+      PORT: "3333"
+      EVOLUTION_API_URL: "http://evolution-api:8080"
+      EVOAPICLOUD_API_URL: "http://evolution-api:8080"
+      EVOLUTION_MANAGER_URL: "http://evolution-api:8080/manager"
+      EVOAPICLOUD_MANAGER_URL: "http://evolution-api:8080/manager"
+      PUBLIC_WEBHOOK_BASE_URL: "http://whatsvendedora-api:3333"
+      POSTGRES_DATABASE_URL: "postgresql://evolution:evolution@evolution-postgres:5432/evolution"
+      POSTGRES_SCHEMA: "whatsvendedora"
+      WEBHOOK_QUEUE_REDIS_URL: "redis://evolution-redis:6379/7"
+      WEBHOOK_QUEUE_NAME: "whatsvendedora-webhooks"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3333/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
   evolution-postgres:
     image: postgres:16-alpine
     container_name: evolution-postgres
@@ -34,6 +67,8 @@ services:
       evolution-postgres:
         condition: service_healthy
       evolution-redis:
+        condition: service_started
+      whatsvendedora-api:
         condition: service_started
     ports:
       - "8080:8080"

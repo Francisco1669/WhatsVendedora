@@ -1,5 +1,3 @@
-const path = require("path");
-
 require("dotenv").config();
 
 function parseNumber(value, fallbackValue) {
@@ -19,7 +17,18 @@ module.exports = {
     EVOLUTION_MANAGER_URL:
         process.env.EVOAPICLOUD_MANAGER_URL || process.env.EVOLUTION_MANAGER_URL || "",
     PUBLIC_WEBHOOK_BASE_URL: process.env.PUBLIC_WEBHOOK_BASE_URL || "",
-    DB_PATH: process.env.DB_PATH || path.join(process.cwd(), "data", "multi-instance.db"),
+    POSTGRES_DATABASE_URL:
+        process.env.POSTGRES_DATABASE_URL ||
+        process.env.DATABASE_URL ||
+        "postgresql://evolution:evolution@127.0.0.1:5432/evolution",
+    POSTGRES_SCHEMA: process.env.POSTGRES_SCHEMA || "whatsvendedora",
+    POSTGRES_POOL_MAX: parseNumber(process.env.POSTGRES_POOL_MAX, 10),
+    WEBHOOK_QUEUE_REDIS_URL:
+        process.env.WEBHOOK_QUEUE_REDIS_URL ||
+        process.env.REDIS_URL ||
+        "redis://127.0.0.1:6379/7",
+    WEBHOOK_QUEUE_NAME: process.env.WEBHOOK_QUEUE_NAME || "whatsvendedora-webhooks",
+    WEBHOOK_QUEUE_CONCURRENCY: parseNumber(process.env.WEBHOOK_QUEUE_CONCURRENCY, 5),
     AUTH_JWT_SECRET: process.env.AUTH_JWT_SECRET || "",
     AUTH_JWT_EXPIRES_IN: process.env.AUTH_JWT_EXPIRES_IN || "12h",
     AUTH_BCRYPT_ROUNDS: parseNumber(process.env.AUTH_BCRYPT_ROUNDS, 10),

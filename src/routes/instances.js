@@ -214,7 +214,7 @@ router.post(
         const payload = instancePayloadSchema.parse(req.body || {});
         const webhookToken = payload.webhookToken || randomBytes(24).toString("hex");
 
-        const saved = upsertInstance({
+        const saved = await upsertInstance({
             ...payload,
             webhookToken,
         });
@@ -241,7 +241,7 @@ router.post(
             }
         }
 
-        recordAdminAudit({
+        await recordAdminAudit({
             adminUserId: req.auth?.user?.id || null,
             action: "INSTANCE_UPSERT",
             instanceId: saved.id,
@@ -262,7 +262,7 @@ router.post(
 router.patch(
     "/instances/:instanceId",
     asyncHandler(async (req, res) => {
-        const existing = getInstanceById(req.params.instanceId);
+        const existing = await getInstanceById(req.params.instanceId);
         if (!existing) {
             res.status(404).json({ error: "Instancia nao encontrada." });
             return;
@@ -270,7 +270,7 @@ router.patch(
 
         const payload = instanceUpdatePayloadSchema.parse(req.body || {});
 
-        const saved = upsertInstance({
+        const saved = await upsertInstance({
             id: existing.id,
             label: payload.label ?? existing.label,
             phoneNumber: payload.phoneNumber ?? existing.phoneNumber,
@@ -280,7 +280,7 @@ router.patch(
             status: payload.status ?? existing.status,
         });
 
-        recordAdminAudit({
+        await recordAdminAudit({
             adminUserId: req.auth?.user?.id || null,
             action: "INSTANCE_UPDATE",
             instanceId: saved.id,
@@ -298,15 +298,15 @@ router.patch(
 router.delete(
     "/instances/:instanceId",
     asyncHandler(async (req, res) => {
-        const existing = getInstanceById(req.params.instanceId);
+        const existing = await getInstanceById(req.params.instanceId);
         if (!existing) {
             res.status(404).json({ error: "Instancia nao encontrada." });
             return;
         }
 
-        const deleted = deleteInstancePermanently(existing.id);
+        const deleted = await deleteInstancePermanently(existing.id);
 
-        recordAdminAudit({
+        await recordAdminAudit({
             adminUserId: req.auth?.user?.id || null,
             action: "INSTANCE_DELETE",
             instanceId: null,
@@ -331,13 +331,13 @@ router.delete(
 router.post(
     "/instances/:instanceId/deactivate",
     asyncHandler(async (req, res) => {
-        const existing = getInstanceById(req.params.instanceId);
+        const existing = await getInstanceById(req.params.instanceId);
         if (!existing) {
             res.status(404).json({ error: "Instancia nao encontrada." });
             return;
         }
 
-        const saved = upsertInstance({
+        const saved = await upsertInstance({
             id: existing.id,
             label: existing.label,
             phoneNumber: existing.phoneNumber,
@@ -347,7 +347,7 @@ router.post(
             status: "inactive",
         });
 
-        recordAdminAudit({
+        await recordAdminAudit({
             adminUserId: req.auth?.user?.id || null,
             action: "INSTANCE_DEACTIVATE",
             instanceId: saved.id,
@@ -368,7 +368,7 @@ router.get(
     "/instances",
     asyncHandler(async (req, res) => {
         const includeState = req.query.includeState === "true";
-        const instances = listInstances().map((item) => sanitizeInstance(item));
+        const instances = (await listInstances()).map((item) => sanitizeInstance(item));
 
         if (includeState && evolutionClient.isConfigured()) {
             await Promise.all(
@@ -397,7 +397,7 @@ router.get(
 router.post(
     "/instances/:instanceId/connect",
     asyncHandler(async (req, res) => {
-        const instance = getInstanceById(req.params.instanceId);
+        const instance = await getInstanceById(req.params.instanceId);
         if (!instance || !instance.active) {
             res.status(404).json({ error: "Instancia nao encontrada ou inativa." });
             return;
@@ -408,7 +408,7 @@ router.post(
         if (!hasUsefulQrData(qrData)) {
             for (let attempt = 0; attempt < 6; attempt += 1) {
                 await wait(2000);
-                const refreshedInstance = getInstanceById(instance.id);
+                const refreshedInstance = await getInstanceById(instance.id);
                 if (hasUsefulQrData(refreshedInstance?.lastQrPayload)) {
                     qrData = refreshedInstance.lastQrPayload;
                     break;
@@ -430,7 +430,7 @@ router.post(
     "/instances/:instanceId/send",
     asyncHandler(async (req, res) => {
         const parsedBody = sendMessageSchema.parse(req.body || {});
-        const instance = getInstanceById(req.params.instanceId);
+        const instance = await getInstanceById(req.params.instanceId);
 
         if (!instance || !instance.active) {
             res.status(404).json({ error: "Instancia nao encontrada ou inativa." });
@@ -445,7 +445,7 @@ router.post(
 
         const sender = req.auth?.user || null;
 
-        saveOutboundMessage({
+        await saveOutboundMessage({
             instanceId: instance.id,
             originTag: `${instance.id}:${instance.phoneNumber}`,
             toJid: parsedBody.to,
@@ -457,7 +457,7 @@ router.post(
             requestId: req.get("x-request-id") || null,
         });
 
-        recordAdminAudit({
+        await recordAdminAudit({
             adminUserId: sender?.id || null,
             action: "MESSAGE_SEND",
             instanceId: instance.id,
@@ -481,14 +481,14 @@ router.post(
 router.get(
     "/instances/:instanceId/conversations",
     asyncHandler(async (req, res) => {
-        const instance = getInstanceById(req.params.instanceId);
+        const instance = await getInstanceById(req.params.instanceId);
         if (!instance) {
             res.status(404).json({ error: "Instancia nao encontrada." });
             return;
         }
 
         const query = instanceMessagesQuerySchema.parse(req.query || {});
-        const conversations = listInstanceConversations({
+        const conversations = await listInstanceConversations({
             instanceId: instance.id,
             receivedAfter: query.receivedAfter,
         });
@@ -508,7 +508,7 @@ router.get(
 router.post(
     "/instances/:instanceId/sync",
     asyncHandler(async (req, res) => {
-        const instance = getInstanceById(req.params.instanceId);
+        const instance = await getInstanceById(req.params.instanceId);
         if (!instance || !instance.active) {
             res.status(404).json({ error: "Instancia nao encontrada ou inativa." });
             return;
@@ -553,7 +553,7 @@ router.post(
                     routeInstanceId: instance.id,
                     headerInstanceName: instance.evolutionInstance,
                 });
-                const resultSave = saveInboundMessage(normalized);
+                const resultSave = await saveInboundMessage(normalized);
                 if (resultSave.inserted) {
                     imported += 1;
                 } else {
@@ -566,7 +566,7 @@ router.post(
             }
         }
 
-        recordAdminAudit({
+        await recordAdminAudit({
             adminUserId: req.auth?.user?.id || null,
             action: "INSTANCE_HISTORY_SYNC",
             instanceId: instance.id,
@@ -597,7 +597,7 @@ router.post(
 router.get(
     "/instances/:instanceId/messages",
     asyncHandler(async (req, res) => {
-        const instance = getInstanceById(req.params.instanceId);
+        const instance = await getInstanceById(req.params.instanceId);
         if (!instance) {
             res.status(404).json({ error: "Instancia nao encontrada." });
             return;
@@ -610,7 +610,7 @@ router.get(
         );
         const offset = Math.max(0, Number(query.offset || 0));
 
-        const messages = listInboundMessages({
+        const messages = await listInboundMessages({
             instanceId: instance.id,
             conversationId: query.conversationId,
             receivedAfter: query.receivedAfter,

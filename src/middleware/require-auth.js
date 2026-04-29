@@ -10,38 +10,42 @@ function extractBearerToken(req) {
     return authHeader.slice(7).trim();
 }
 
-function requireAuth(req, res, next) {
-    const token = extractBearerToken(req);
+async function requireAuth(req, res, next) {
+    try {
+        const token = extractBearerToken(req);
 
-    if (!token) {
-        const error = new Error("Token JWT ausente. Use Authorization: Bearer <token>.");
-        error.status = 401;
+        if (!token) {
+            const error = new Error("Token JWT ausente. Use Authorization: Bearer <token>.");
+            error.status = 401;
+            next(error);
+            return;
+        }
+
+        const payload = verifyAccessToken(token);
+        const userId = Number(payload.sub || 0);
+        const adminUser = await getAdminUserById(userId);
+
+        if (!adminUser || !adminUser.active) {
+            const error = new Error("Usuario administrativo nao encontrado ou inativo.");
+            error.status = 401;
+            next(error);
+            return;
+        }
+
+        req.auth = {
+            tokenPayload: payload,
+            user: {
+                id: adminUser.id,
+                name: adminUser.name,
+                email: adminUser.email,
+                role: adminUser.role,
+            },
+        };
+
+        next();
+    } catch (error) {
         next(error);
-        return;
     }
-
-    const payload = verifyAccessToken(token);
-    const userId = Number(payload.sub || 0);
-    const adminUser = getAdminUserById(userId);
-
-    if (!adminUser || !adminUser.active) {
-        const error = new Error("Usuario administrativo nao encontrado ou inativo.");
-        error.status = 401;
-        next(error);
-        return;
-    }
-
-    req.auth = {
-        tokenPayload: payload,
-        user: {
-            id: adminUser.id,
-            name: adminUser.name,
-            email: adminUser.email,
-            role: adminUser.role,
-        },
-    };
-
-    next();
 }
 
 module.exports = {
