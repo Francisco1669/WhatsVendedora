@@ -258,26 +258,20 @@ function renderSellerList() {
             const connectDisabled = item.active ? "" : "disabled";
 
             return `
-        <article class="${sellerClass}" style="--order:${index + 1};">
-          <button
-            type="button"
-            class="seller-select"
-            data-select-instance-id="${escapeHtml(item.instanceId)}"
-          >
+        <article class="${sellerClass}" data-select-instance-id="${escapeHtml(item.instanceId)}">
             <div class="seller-line">
               <span class="seller-name">${escapeHtml(item.sellerLabel || item.instanceId)}</span>
-              <span class="chip">${Number(item.totalInbound || 0)}</span>
+              <span class="chip" title="Total Mensagens"><i class="ph ph-chat-circle"></i> ${Number(item.totalInbound || 0)}</span>
             </div>
             <div class="seller-line">
               <span class="seller-sub">${escapeHtml(item.phoneNumber || "-")}</span>
-              <span class="status-dot ${statusClass}">${escapeHtml(item.connectionStatus || "unknown")}</span>
+              <span class="status-dot ${statusClass}">${escapeHtml(item.connectionStatus || "offline")}</span>
             </div>
-          </button>
-          <div class="seller-actions">
-            <button class="btn btn-ghost btn-small" type="button" data-action="connect" data-instance-id="${escapeHtml(item.instanceId)}" ${connectDisabled}>Conectar</button>
-            <button class="btn btn-ghost btn-small" type="button" data-action="edit" data-instance-id="${escapeHtml(item.instanceId)}">Editar</button>
-                        <button class="btn btn-danger btn-small" type="button" data-action="delete" data-instance-id="${escapeHtml(item.instanceId)}">Excluir</button>
-          </div>
+            <div class="seller-actions">
+              <button class="btn btn-soft btn-small" type="button" data-action="connect" data-instance-id="${escapeHtml(item.instanceId)}" ${connectDisabled}><i class="ph ph-link"></i> QR</button>
+              <button class="btn btn-soft btn-small" type="button" data-action="edit" data-instance-id="${escapeHtml(item.instanceId)}"><i class="ph ph-pencil"></i></button>
+              <button class="btn btn-danger-soft btn-small" type="button" data-action="delete" data-instance-id="${escapeHtml(item.instanceId)}"><i class="ph ph-trash"></i></button>
+            </div>
         </article>
       `;
         })
@@ -311,15 +305,29 @@ function renderAudit() {
     }
 
     dom.auditList.innerHTML = state.audits
-        .slice(0, 12)
+        .slice(0, 15)
         .map((item) => {
-            const actor = item.adminUserName || "sistema";
-            const target = item.instanceId ? ` | ${item.instanceId}` : "";
+            const time = new Date(item.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+            
+            let actName = item.action || "AÇÃO";
+            const dic = {
+                CREATED: "Nova Instância",
+                UPDATED: "Dados Atualizados",
+                DELETED: "Instância Excluída",
+                CONNECTED: "WhatsApp Conectado",
+                DISCONNECTED: "WhatsApp Desconectado",
+                MESSAGE_SEND: "Mensagem Enviada",
+                MESSAGE_UPSERT: "Nova Mensagem",
+                CONNECTION_UPDATE: "Status Alterado"
+            };
+            if(dic[actName]) actName = dic[actName];
+            
+            const target = item.instanceId ? ` &bull; ${item.instanceId}` : "";
+            
             return `
         <div class="compact-item">
-          <span class="compact-item-title">${escapeHtml(item.action)}</span>
-          <span class="compact-item-sub">${escapeHtml(actor)}${escapeHtml(target)}</span>
-          <span class="compact-item-sub">${formatDateTime(item.createdAt)}</span>
+          <span class="compact-item-title">${escapeHtml(actName)}</span>
+          <span class="compact-item-sub">${time}${escapeHtml(target)}</span>
         </div>
       `;
         })
@@ -600,15 +608,21 @@ async function onSellerFormSubmit(event) {
 
     const label = dom.sellerLabelInput.value.trim();
     const phoneNumber = normalizePhone(dom.sellerPhoneInput.value);
-    const evolutionInstance = dom.sellerEvolutionInput.value.trim();
-    const active = Boolean(dom.sellerActiveInput.checked);
+    
+    let evolutionInstance = dom.sellerEvolutionInput.value.trim();
+    if (!evolutionInstance && label) {
+        evolutionInstance = "evo_" + label.toLowerCase().replace(/[^a-z0-9]/g, "").substring(0, 10) + Math.floor(Math.random() * 1000);
+        dom.sellerEvolutionInput.value = evolutionInstance;
+    }
+    const active = true;
 
-    if (!label || !phoneNumber || !evolutionInstance) {
-        showToast("Preencha nome, numero e instancia Evolution.", "error");
+    if (!label || !phoneNumber) {
+        showToast("Preencha o Nome e WhatsApp da vendedora.", "error");
         return;
     }
 
     dom.sellerSaveButton.disabled = true;
+    dom.sellerSaveButton.innerHTML = '<i class="ph ph-spinner-gap" style="animation: spin 1s linear infinite;"></i> Salvando...';
 
     try {
         if (state.sellerFormMode === "edit" && state.editingInstanceId) {
@@ -629,10 +643,10 @@ async function onSellerFormSubmit(event) {
             return;
         }
 
-        const instanceId = normalizeInstanceId(dom.sellerIdInput.value);
+        let instanceId = dom.sellerIdInput.value.trim();
         if (!instanceId) {
-            showToast("Informe um ID de instancia valido.", "error");
-            return;
+            instanceId = label.toLowerCase().replace(/[^a-z0-9]/g, "").substring(0, 10) + "_" + Math.floor(Math.random() * 1000);
+            dom.sellerIdInput.value = instanceId;
         }
 
         const provision = dom.sellerProvisionInput.checked;
@@ -660,6 +674,7 @@ async function onSellerFormSubmit(event) {
         handleApiError(error);
     } finally {
         dom.sellerSaveButton.disabled = false;
+        dom.sellerSaveButton.innerHTML = '<i class="ph ph-check"></i> Salvar';
     }
 }
 

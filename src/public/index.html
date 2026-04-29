@@ -3,35 +3,30 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>WhatsVendedora | Central</title>
+  <title>Painel Central | WhatsVendedora</title>
   
-  <!-- Modern Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="./styles.css" />
   
-  <!-- Phosphor Icons (Lightweight SVG icons via Phosphor) -->
+  <!-- Phosphor Icons for easy UI icons -->
   <script src="https://unpkg.com/@phosphor-icons/web"></script>
 </head>
 <body>
-  <!-- Background Elements -->
-  <div class="bg-shape bg-shape-1"></div>
-  <div class="bg-shape bg-shape-2"></div>
-  <div class="bg-glass"></div>
 
   <!-- Login Screen -->
   <section id="loginView" class="login-view hidden">
     <div class="login-card">
       <div class="login-header">
-        <i class="ph ph-shield-check text-accent-primary" style="font-size: 2.5rem; margin-bottom: 0.5rem"></i>
-        <h1>Central Restrita</h1>
-        <p class="muted">Acesse a gestão e auditoria do hub WhatsApp.</p>
+        <i class="ph-fill ph-whatsapp-logo text-primary" style="font-size: 3rem; color: #0ea5e9; margin-bottom: 0.5rem"></i>
+        <h1>Painel Gerencial</h1>
+        <p class="muted">Acesso restrito a supervisão.</p>
       </div>
 
-      <form id="loginForm" class="login-form">
+      <form id="loginForm" class="stack gap-md">
         <div class="input-group">
-          <label for="emailInput">E-mail de Acesso</label>
+          <label for="emailInput">E-mail</label>
           <div class="input-icon-wrapper">
             <i class="ph ph-envelope-simple"></i>
             <input id="emailInput" name="email" type="email" autocomplete="email" required placeholder="dona@loja.com.br" />
@@ -39,14 +34,14 @@
         </div>
 
         <div class="input-group">
-          <label for="passwordInput">Senha Segura</label>
+          <label for="passwordInput">Senha</label>
           <div class="input-icon-wrapper">
             <i class="ph ph-lock-key"></i>
-            <input id="passwordInput" name="password" type="password" autocomplete="current-password" required placeholder="Sua senha secreta" />
+            <input id="passwordInput" name="password" type="password" autocomplete="current-password" required placeholder="••••••••" />
           </div>
         </div>
 
-        <button id="loginButton" type="submit" class="btn btn-primary btn-block">Acessar Painel</button>
+        <button id="loginButton" type="submit" class="btn btn-primary btn-block">Acessar</button>
         <p id="loginError" class="flash-alert flash-error hidden" role="alert"></p>
       </form>
     </div>
@@ -57,189 +52,178 @@
     <!-- Navbar -->
     <header class="top-nav">
       <div class="nav-brand">
-        <i class="ph-fill ph-whatsapp-logo logo-icon"></i>
-        <span>WhatsVendedora <span class="badge">PRO</span></span>
+        <i class="ph-fill ph-whatsapp-logo" style="color:#10b981; font-size:1.4rem;"></i>
+        WhatsVendedora
       </div>
       <div class="nav-actions">
-        <div id="userBadge" class="user-pill"><i class="ph ph-user"></i> <span>-</span></div>
-        <button id="refreshAllButton" class="btn btn-soft" title="Atualizar dados"><i class="ph ph-arrows-clockwise"></i> Sync</button>
-        <button id="logoutButton" class="btn btn-danger-soft" title="Sair"><i class="ph ph-sign-out"></i></button>
+        <div id="userBadge" class="user-pill">-</div>
+        <button id="refreshAllButton" class="btn btn-soft btn-small" title="Atualizar dados"><i class="ph ph-arrows-clockwise"></i> Recarregar</button>
+        <button id="logoutButton" class="btn btn-danger-soft btn-small" title="Sair"><i class="ph ph-sign-out"></i> Sair</button>
       </div>
     </header>
 
     <main class="dashboard-grid">
-      <!-- Left Column: Sellers & Forms -->
-      <aside class="panel col-left">
-        
+      <!-- Left Column: Sellers List and Simple Add -->
+      <aside class="panel">
         <div class="panel-header">
           <h3>Equipe de Vendas</h3>
           <span id="sellersCounter" class="counter-badge">0</span>
         </div>
 
-        <form id="sellerForm" class="seller-registry-form">
-          <div class="form-title">
-            <h4 id="sellerFormTitle">Adicionar Vendedora</h4>
-            <span id="sellerFormModeTag" class="tag tag-blue">Novo</span>
+        <!-- SIMPLIFIED FORM (IDs and Checkboxes are hidden) -->
+        <form id="sellerForm" class="seller-add-box">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
+            <strong id="sellerFormTitle" style="font-size:0.9rem;">Adicionar Vendedora</strong>
+            <span id="sellerFormModeTag" class="counter-badge" style="background:#e0f2fe; color:#0284c7;">Novo</span>
           </div>
 
-          <div class="form-grid">
-            <div class="input-group">
-              <label for="sellerIdInput">ID Único</label>
-              <input id="sellerIdInput" type="text" placeholder="mari-sp" required />
-            </div>
-            <div class="input-group">
-              <label for="sellerEvolutionInput">ID na Evolution</label>
-              <input id="sellerEvolutionInput" type="text" placeholder="mari_sp" required />
-            </div>
-            <div class="input-group span-2">
-              <label for="sellerLabelInput">Nome Completo</label>
-              <input id="sellerLabelInput" type="text" placeholder="Mariana Silva" required />
-            </div>
-            <div class="input-group span-2">
-              <label for="sellerPhoneInput">Número WhatsApp</label>
-              <input id="sellerPhoneInput" type="text" placeholder="+55 11 90000-0000" required />
-            </div>
+          <div class="input-group" style="margin-bottom:8px;">
+            <input id="sellerLabelInput" type="text" placeholder="Nome Ex: Maria São Paulo" required style="width:100%; border:1px solid #cbd5e1; padding:8px; border-radius:6px; font-size:0.85rem;" />
+          </div>
+          
+          <div class="input-group" style="margin-bottom:12px;">
+            <input id="sellerPhoneInput" type="text" placeholder="WhatsApp Ex: 5511900000000" required style="width:100%; border:1px solid #cbd5e1; padding:8px; border-radius:6px; font-size:0.85rem;" />
           </div>
 
-          <div class="toggles-wrapper">
-            <label class="switch-control">
-              <input id="sellerActiveInput" type="checkbox" checked />
-              <span class="switch-slider"></span>
-              <span class="switch-label">Linha Ativa</span>
-            </label>
-            <label class="switch-control">
-              <input id="sellerProvisionInput" type="checkbox" checked />
-              <span class="switch-slider"></span>
-              <span class="switch-label">Sincronizar Cloud</span>
-            </label>
-          </div>
+          <!-- HIDDEN TECHNICAL FIELDS -->
+          <input id="sellerIdInput" type="hidden" />
+          <input id="sellerEvolutionInput" type="hidden" />
+          <input id="sellerActiveInput" type="checkbox" checked class="hidden" />
+          <input id="sellerProvisionInput" type="checkbox" checked class="hidden" />
 
-          <div class="form-actions">
-            <button id="sellerResetButton" class="btn btn-text" type="button">Cancelar</button>
-            <button id="sellerSaveButton" class="btn btn-primary" type="submit"><i class="ph ph-plus"></i> Salvar</button>
+          <div style="display:flex; gap:8px;">
+            <button id="sellerSaveButton" class="btn btn-primary" type="submit" style="flex:1;"><i class="ph ph-check"></i> Salvar</button>
+            <button id="sellerResetButton" class="btn btn-soft" type="button"><i class="ph ph-x"></i></button>
           </div>
         </form>
 
-        <div class="list-search">
-          <i class="ph ph-magnifying-glass"></i>
-          <input id="sellerSearchInput" type="search" placeholder="Filtrar vendedoras..." />
+        <div style="padding: 12px 16px; border-bottom: 1px solid #f1f5f9;">
+          <div style="position:relative;">
+            <i class="ph ph-magnifying-glass" style="position:absolute; left:10px; top:8px; color:var(--text-light);"></i>
+            <input id="sellerSearchInput" type="search" placeholder="Filtrar..." style="width:100%; border:1px solid #cbd5e1; padding:6px 12px 6px 32px; border-radius:8px; font-size:0.85rem;" />
+          </div>
         </div>
 
         <div id="sellerList" class="scroll-list seller-list"></div>
-
-        <div id="qrCard" class="qr-overlay hidden">
-          <div class="qr-modal">
-            <div class="qr-header">
-              <h4 id="qrCardTitle">Vincular Celular</h4>
-              <button id="qrCloseButton" class="btn-circular"><i class="ph ph-x"></i></button>
-            </div>
-            <p id="qrCardMeta" class="qr-desc"></p>
-            <div class="qr-box">
-              <img id="qrImage" class="qr-image hidden" alt="QR Code" />
-              <pre id="qrRaw" class="qr-raw hidden"></pre>
-              <div class="qr-spinner"><i class="ph ph-spinner-gap"></i> Aguardando Leitura...</div>
-            </div>
-            <p class="qr-instruct">WhatsApp > Aparelhos Conectados</p>
-          </div>
-        </div>
       </aside>
 
-      <!-- Center Content: Conversations & Messages -->
-      <section class="panel content-main">
+      <!-- Center Column: Conversations -->
+      <section class="panel">
         <header class="content-header">
           <div class="conv-info">
-            <h2 id="conversationTitle">Selecione uma vendedora</h2>
+            <h2 id="conversationTitle">Conversas</h2>
             <p id="conversationMeta" class="muted">Nenhuma linha selecionada</p>
           </div>
           
           <div class="date-filters">
             <div class="filter-group">
-              <button class="filter-btn active" data-range="24h">24h</button>
-              <button class="filter-btn" data-range="7d">7 Dias</button>
-              <button class="filter-btn" data-range="all">Tudo</button>
+              <button class="filter-btn range-button active" data-range="24h">24h</button>
+              <button class="filter-btn range-button" data-range="7d">7d</button>
+              <button class="filter-btn range-button" data-range="all">Tudo</button>
             </div>
             <div class="sync-actions">
-              <button id="syncConversationButton" class="btn btn-outline" title="Baixar histórico do contato atual"><i class="ph ph-download-simple"></i> Chat</button>
-              <button id="syncInstanceButton" class="btn btn-outline" title="Baixar histórico 100% da vendedora"><i class="ph ph-cloud-arrow-down"></i> Linha</button>
+              <button id="syncConversationButton" class="btn btn-outline btn-small" title="Baixar histórico do contato atual"><i class="ph ph-download-simple"></i> Chat</button>
+              <button id="syncInstanceButton" class="btn btn-outline btn-small" title="Baixar histórico 100% da vendedora"><i class="ph ph-cloud-arrow-down"></i> Vendedora</button>
             </div>
           </div>
         </header>
 
-        <div id="historyStatus" class="alert-box info-box hidden"></div>
+        <div id="historyStatus" class="hidden"></div>
 
         <div class="chat-workspace">
-          <!-- Chat Threads sidebar -->
-          <div class="threads-sidebar">
+          <aside class="threads-sidebar">
              <div class="threads-header">
                <span>Contatos Recentes</span>
                <span id="threadsCounter" class="counter-badge">0</span>
              </div>
              <div id="threadsList" class="scroll-list threads-list"></div>
-          </div>
+          </aside>
           
-          <!-- Messages view -->
           <div class="messages-area">
              <div id="messagesFeed" class="messages-feed scroll-list">
                 <div class="empty-feed">
-                  <i class="ph ph-chats-circle"></i>
-                  <p>Selecione um contato na lista lateral para iniciar a auditoria.</p>
+                  <i class="ph ph-chats-circle" style="font-size:3rem; opacity:0.5; margin-bottom:12px;"></i>
+                  <p>Selecione um contato para ver as mensagens.</p>
                 </div>
              </div>
              
              <!-- Composer -->
              <form id="sendForm" class="message-composer">
                <div class="composer-inputs">
-                 <input id="recipientInput" type="text" placeholder="DDI+DDD+Numero (ex: 5511999990000)" required class="composer-phone"/>
-                 <textarea id="messageInput" placeholder="Mensagem do supervisor..." rows="1" required></textarea>
+                 <input id="recipientInput" type="text" placeholder="DDI+DDD+Numero" required/>
+                 <textarea id="messageInput" placeholder="Mensagem da supervisão..." rows="1" required></textarea>
                </div>
-               <button id="sendButton" class="btn btn-send" type="submit"><i class="ph-fill ph-paper-plane-right"></i></button>
+               <button id="sendButton" class="btn-send" type="submit"><i class="ph-fill ph-paper-plane-right"></i></button>
              </form>
           </div>
         </div>
       </section>
 
-      <!-- Right Column: Stats -->
+      <!-- Right Column: Stats and Insights -->
       <aside class="panel col-right">
         
-        <div class="widget-section">
-          <h3>Visão Geral</h3>
+        <div class="widget" style="border:none; background:transparent;">
+          <h3 style="font-size:0.95rem; font-weight:600; margin-bottom:12px; color:var(--text-main);">Visão Geral</h3>
           <div class="stats-grid">
-            <div class="stat-card spark-green">
-              <i class="ph ph-cell-signal-full"></i>
-              <div class="stat-info">
-                <span>Vendedoras On</span>
-                <strong id="statActiveSellers">0</strong>
-              </div>
+            <div class="stat-card">
+              <span>Instâncias On</span>
+              <strong id="statActiveSellers">0</strong>
             </div>
-            <div class="stat-card spark-blue">
-              <i class="ph ph-chat-teardrop-dots"></i>
-              <div class="stat-info">
-                <span>Fluxo Hoje</span>
-                <strong id="statInbound24h">0</strong>
-              </div>
+            <div class="stat-card">
+              <span>Msgs (24h)</span>
+              <strong id="statInbound24h">0</strong>
             </div>
-            <div class="stat-card spark-orange">
-              <i class="ph ph-users-three"></i>
-              <div class="stat-info">
-                <span>Clientes Únicos</span>
-                <strong id="statOrigins">0</strong>
-              </div>
+            <div class="stat-card">
+              <span>Total Origens</span>
+              <strong id="statOrigins">0</strong>
             </div>
           </div>
         </div>
 
-        <div class="widget-section grow">
+        <div class="widget">
           <div class="widget-header">
-            <h3>Distribuição de Leads</h3>
+            <span>Volume de Leads</span>
             <span id="originsCounter" class="counter-badge">0</span>
           </div>
-          <div id="originsList" class="scroll-list compact-origins-list"></div>
-          <div id="auditList" style="display:none;"></div> <!-- Ignored if unused, hidden to avoid JS error -->
+          <div id="originsList" class="scroll-list compact-list"></div>
+        </div>
+
+        <div class="widget">
+          <div class="widget-header">
+            <span>Auditoria Recente</span>
+            <span id="auditCounter" class="counter-badge">0</span>
+          </div>
+          <div id="auditList" class="scroll-list compact-list"></div>
         </div>
 
       </aside>
     </main>
   </section>
+
+  <!-- Modals and Overlays -->
+  <div id="qrCard" class="modal-overlay hidden">
+    <div class="modal" style="text-align:center;">
+      <div class="modal-header">
+        <span id="qrCardTitle">Conectar Celular</span>
+        <button id="qrCloseButton" class="btn-close"><i class="ph ph-x"></i></button>
+      </div>
+      <p id="qrCardMeta" class="muted" style="margin-bottom:16px;"></p>
+      <div class="qr-box">
+        <img id="qrImage" class="qr-image hidden" alt="QR Code" />
+        <pre id="qrRaw" class="hidden" style="font-size:0.7rem; overflow-x:auto; margin:10px 0;"></pre>
+        <div><i class="ph ph-spinner-gap" style="animation: spin 1s linear infinite;"></i></div>
+      </div>
+      <p class="muted" style="font-size:0.8rem;">Pelo seu celular acesse: WhatsApp > Aparelhos Conectados > Conectar.</p>
+    </div>
+  </div>
+
+  <!-- Note: We use a simple CSS string animation since it wasn't defined -->
+  <style>
+    @keyframes spin { 100% { transform: rotate(360deg); } }
+  </style>
+  
+  <!-- Add toast root -->
+  <div id="toastArea" style="position:fixed; top:20px; right:20px; z-index:9999; pointer-events:none;"></div>
 
   <!-- JS Link -->
   <script src="./app.js"></script>
