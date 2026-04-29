@@ -509,7 +509,78 @@ textarea {
 }
 
 .conversation-header {
-    margin-bottom: 10px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+
+.conversation-heading {
+    min-width: min(100%, 260px);
+}
+
+.conversation-tools {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+}
+
+.history-actions {
+    display: inline-flex;
+    align-items: center;
+    overflow: hidden;
+    border: 1px solid #cfe0dc;
+    border-radius: 999px;
+    background: #f6fffc;
+}
+
+.history-label {
+    color: #5d7772;
+    font-size: 0.72rem;
+    font-weight: 800;
+    padding: 0 10px 0 12px;
+    text-transform: uppercase;
+}
+
+.history-button {
+    min-width: 92px;
+    border: 0;
+    border-left: 1px solid #d7e8e4;
+    background: transparent;
+    color: #23635c;
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 800;
+    padding: 7px 12px;
+    transition: background-color 180ms ease, color 180ms ease;
+}
+
+.history-button:first-child {
+    border-left: 0;
+}
+
+.history-button:hover:not(:disabled) {
+    background: #dff4f0;
+}
+
+.history-button:disabled {
+    color: #8da39f;
+    cursor: not-allowed;
+}
+
+.history-status {
+    margin: 0 0 10px auto;
+    width: fit-content;
+    max-width: 100%;
+    border: 1px solid #cfe0dc;
+    border-radius: 999px;
+    background: #f6fffc;
+    color: #23635c;
+    font-size: 0.8rem;
+    font-weight: 700;
+    padding: 6px 11px;
 }
 
 .conversation-layout {
@@ -939,5 +1010,29 @@ textarea {
     .topbar-actions {
         width: 100%;
         flex-wrap: wrap;
+    }
+
+    .conversation-tools,
+    .history-status {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .conversation-tools {
+        justify-content: flex-start;
+    }
+
+    .history-actions,
+    .range-switch {
+        width: 100%;
+    }
+
+    .history-button,
+    .range-button {
+        flex: 1;
+    }
+
+    .history-label {
+        flex: 0 0 auto;
     }
 }

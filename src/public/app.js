@@ -72,6 +72,9 @@ function cacheElements() {
     dom.threadsCounter = document.getElementById("threadsCounter");
     dom.threadsList = document.getElementById("threadsList");
     dom.messagesFeed = document.getElementById("messagesFeed");
+    dom.syncInstanceButton = document.getElementById("syncInstanceButton");
+    dom.syncConversationButton = document.getElementById("syncConversationButton");
+    dom.historyStatus = document.getElementById("historyStatus");
     dom.recipientInput = document.getElementById("recipientInput");
     dom.messageInput = document.getElementById("messageInput");
     dom.sendForm = document.getElementById("sendForm");
@@ -102,6 +105,8 @@ function bindEvents() {
     dom.qrCloseButton.addEventListener("click", hideQrCard);
 
     dom.sendForm.addEventListener("submit", onSendSubmit);
+    dom.syncInstanceButton.addEventListener("click", onSyncInstance);
+    dom.syncConversationButton.addEventListener("click", onSyncConversation);
     dom.rangeButtons.forEach((button) => {
         button.addEventListener("click", () => onRangeSelected(button.dataset.range));
     });
@@ -198,6 +203,7 @@ async function refreshDashboard({ preserveSelection }) {
             state.messages = [];
             state.conversations = [];
             state.selectedConversationId = null;
+            setHistoryStatus("");
             renderThreads();
             renderEmptyConversation("Nenhuma instancia cadastrada.");
             setComposerAvailability(null);
@@ -677,10 +683,11 @@ async function loadConversationsForInstance(instanceId, { preserveConversation }
     const seller = getSellerById(instanceId);
     dom.conversationTitle.textContent = seller?.sellerLabel || instanceId;
     dom.conversationMeta.textContent = seller
-        ? `${seller.phoneNumber || "-"} | ${seller.evolutionInstance || "-"}`
+        ? `${seller.phoneNumber || "-"} - ${seller.evolutionInstance || "-"}`
         : "Carregando conversas...";
 
     setComposerAvailability(null);
+    updateSyncButtonState();
     state.messages = [];
     dom.messagesFeed.innerHTML = '<div class="empty-state">Carregando conversas...</div>';
     dom.threadsList.innerHTML = '<div class="empty-state">Carregando...</div>';
@@ -706,11 +713,13 @@ async function loadConversationsForInstance(instanceId, { preserveConversation }
         }
 
         renderThreads();
+        updateSyncButtonState();
 
         if (state.selectedConversationId) {
             await loadMessagesForConversation(instanceId, state.selectedConversationId);
         } else {
             setComposerAvailability(null);
+            updateSyncButtonState();
             renderEmptyConversation("Nenhuma conversa encontrada para esta vendedora.");
         }
     } catch (error) {
@@ -718,6 +727,7 @@ async function loadConversationsForInstance(instanceId, { preserveConversation }
         state.conversations = [];
         state.selectedConversationId = null;
         renderThreads();
+        updateSyncButtonState();
         renderEmptyConversation("Nao foi possivel carregar as conversas desta vendedora.");
     }
 }
@@ -727,6 +737,7 @@ async function loadMessagesForConversation(instanceId, conversationId) {
     const conversation = getConversationById(conversationId);
     state.selectedConversationId = conversationId;
     renderThreads();
+    updateSyncButtonState();
 
     dom.conversationTitle.textContent =
         conversation?.displayName || conversation?.contactDisplay || seller?.sellerLabel || instanceId;
@@ -737,6 +748,7 @@ async function loadMessagesForConversation(instanceId, conversationId) {
         : conversationId;
 
     setComposerAvailability(seller);
+    updateSyncButtonState();
 
     const params = new URLSearchParams();
     params.set("limit", "120");
@@ -776,9 +788,7 @@ function renderThreads() {
             const active = item.conversationId === state.selectedConversationId ? "active" : "";
             const preview = item.lastTextBody || getMessageTypeLabel(item.lastMessageType);
             const title = item.displayName || item.contactDisplay || item.contactPhone || item.conversationId;
-            const subtitle = item.isGroup
-                ? `Grupo | ultimo: ${item.participantDisplay || "participante"}`
-                : "Individual";
+            const subtitle = formatConversationSubtitle(item);
 
             return `
         <button class="thread-item ${active}" type="button" data-conversation-id="${escapeHtml(item.conversationId)}">
@@ -830,11 +840,24 @@ function setComposerAvailability(seller) {
     dom.sendButton.textContent = seller ? "Instancia inativa" : "Selecione uma vendedora";
 }
 
+function updateSyncButtonState(isLoading = false) {
+    const hasInstance = Boolean(state.selectedInstanceId);
+    const hasConversation = Boolean(state.selectedConversationId);
+
+    dom.syncInstanceButton.disabled = !hasInstance || isLoading;
+    dom.syncInstanceButton.textContent = isLoading ? "Buscando..." : "Vendedora";
+    dom.syncConversationButton.disabled = !hasInstance || !hasConversation || isLoading;
+    dom.syncConversationButton.textContent = isLoading ? "Buscando..." : "Conversa";
+}
+
 function renderMessages() {
     if (!state.messages.length) {
         renderEmptyConversation("Sem mensagens no periodo selecionado.");
         return;
     }
+
+    const seller = getSellerById(state.selectedInstanceId);
+    const outgoingAuthor = seller?.sellerLabel || "Vendedora";
 
     dom.messagesFeed.innerHTML = state.messages
         .slice()
@@ -843,9 +866,7 @@ function renderMessages() {
             const outgoing = Boolean(message.fromMe);
             const cssClass = outgoing ? "outgoing" : "incoming";
             const author = outgoing
-                ? message.isGroup
-                    ? message.contactDisplay || "Saida da instancia"
-                    : "Saida da instancia"
+                ? outgoingAuthor
                 : message.contactDisplay || normalizeJid(message.fromJid || message.chatJid || "Contato");
             const body = message.textBody || getMessageTypeLabel(message.messageType);
 
@@ -871,6 +892,15 @@ function renderMessages() {
 
 function renderEmptyConversation(message) {
     dom.messagesFeed.innerHTML = `<div class="empty-state">${escapeHtml(message)}</div>`;
+}
+
+function formatConversationSubtitle(conversation) {
+    if (conversation.isGroup) {
+        const participant = conversation.participantDisplay || conversation.contactDisplay || "participante";
+        return `Grupo - ${participant}`;
+    }
+
+    return conversation.contactPhone ? `WhatsApp ${conversation.contactPhone}` : "Conversa individual";
 }
 
 function renderAvatar(avatarUrl, label, className) {
@@ -931,6 +961,68 @@ function prefillRecipientFromConversation(conversation) {
     }
 
     prefillRecipientFromMessages();
+}
+
+async function runHistorySync({ conversationId = null } = {}) {
+    const params = new URLSearchParams();
+    params.set("maxPages", "20");
+    if (conversationId) {
+        params.set("conversationId", conversationId);
+    }
+
+    updateSyncButtonState(true);
+    setHistoryStatus(conversationId ? "Buscando historico desta conversa..." : "Buscando historico da vendedora...");
+
+    try {
+        const result = await apiRequest(
+            `/api/instances/${encodeURIComponent(state.selectedInstanceId)}/sync?${params.toString()}`,
+            { method: "POST" }
+        );
+
+        const imported = result.imported || 0;
+        const deduplicated = result.deduplicated || 0;
+        const scanned = result.scanned || 0;
+        const statusText = imported
+            ? `${imported} mensagens recuperadas. ${deduplicated} ja estavam no painel.`
+            : `${scanned} mensagens conferidas. Tudo que foi varrido ja estava no painel.`;
+
+        setHistoryStatus(statusText);
+        showToast(statusText);
+        await loadConversationsForInstance(state.selectedInstanceId, { preserveConversation: true });
+    } catch (error) {
+        handleApiError(error);
+    } finally {
+        updateSyncButtonState();
+    }
+}
+
+function setHistoryStatus(message) {
+    if (!message) {
+        dom.historyStatus.textContent = "";
+        dom.historyStatus.classList.add("hidden");
+        return;
+    }
+
+    dom.historyStatus.textContent = message;
+    dom.historyStatus.classList.remove("hidden");
+}
+
+async function onSyncInstance() {
+    if (!state.selectedInstanceId) {
+        showToast("Selecione uma vendedora para sincronizar.", "error");
+        return;
+    }
+
+    await runHistorySync();
+}
+
+async function onSyncConversation() {
+    if (!state.selectedInstanceId || !state.selectedConversationId) {
+        showToast("Selecione uma conversa para sincronizar.", "error");
+        return;
+    }
+
+    await runHistorySync({ conversationId: state.selectedConversationId });
 }
 
 async function onSendSubmit(event) {
@@ -1037,6 +1129,8 @@ function clearSession() {
     state.selectedInstanceId = null;
     state.selectedConversationId = null;
     state.selectedOriginTag = null;
+    setHistoryStatus("");
+    updateSyncButtonState();
     setSellerFormCreateMode();
     hideQrCard();
     localStorage.removeItem(TOKEN_KEY);

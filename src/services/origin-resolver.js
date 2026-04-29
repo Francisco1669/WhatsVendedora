@@ -71,6 +71,46 @@ function extractPayloadInstanceName(payload) {
     );
 }
 
+function isGroupJid(value) {
+    return typeof value === "string" && value.includes("@g.us");
+}
+
+function isLidJid(value) {
+    return typeof value === "string" && value.includes("@lid");
+}
+
+function pickConversationJid(key, envelope, payload) {
+    const remoteJid = pickString(
+        key?.remoteJid,
+        envelope?.remoteJid,
+        envelope?.chatJid,
+        payload?.remoteJid
+    );
+    const remoteJidAlt = pickString(
+        key?.remoteJidAlt,
+        envelope?.remoteJidAlt,
+        payload?.remoteJidAlt
+    );
+
+    if (isGroupJid(remoteJid)) {
+        return remoteJid;
+    }
+
+    if (isGroupJid(remoteJidAlt)) {
+        return remoteJidAlt;
+    }
+
+    if (isLidJid(remoteJid)) {
+        return remoteJid;
+    }
+
+    if (isLidJid(remoteJidAlt)) {
+        return remoteJidAlt;
+    }
+
+    return remoteJid || remoteJidAlt;
+}
+
 function normalizeInboundPayload({ payload, instanceRecord, routeInstanceId, headerInstanceName }) {
     if (!instanceRecord) {
         const error = new Error("Instancia nao encontrada.");
@@ -102,12 +142,7 @@ function normalizeInboundPayload({ payload, instanceRecord, routeInstanceId, hea
     const messageObject = envelope?.message || payload?.message || {};
 
     const eventName = extractEventName(payload);
-    const chatJid = pickString(
-        key?.remoteJid,
-        envelope?.remoteJid,
-        envelope?.chatJid,
-        payload?.remoteJid
-    );
+    const chatJid = pickConversationJid(key, envelope, payload);
     const fromJid = pickString(
         key?.participantAlt,
         key?.participant,

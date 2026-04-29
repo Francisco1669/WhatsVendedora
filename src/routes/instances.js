@@ -7,11 +7,13 @@ const {
     getInstanceById,
     listInboundMessages,
     listInstanceConversations,
+    saveInboundMessage,
     saveOutboundMessage,
     deleteInstancePermanently,
     recordAdminAudit,
 } = require("../db/database");
 const evolutionClient = require("../services/evolution-client");
+const { normalizeInboundPayload } = require("../services/origin-resolver");
 const asyncHandler = require("../utils/async-handler");
 const {
     instancePayloadSchema,
@@ -81,6 +83,24 @@ function hasUsefulQrData(qrData) {
 
 function wait(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function toIsoDateTimeFromEvolution(record) {
+    if (record?.messageTimestamp) {
+        return new Date(Number(record.messageTimestamp) * 1000).toISOString();
+    }
+
+    return new Date().toISOString();
+}
+
+function wrapEvolutionHistoryMessage(instance, record) {
+    return {
+        event: "messages.history",
+        instance: instance.evolutionInstance,
+        data: record,
+        date_time: toIsoDateTimeFromEvolution(record),
+        sender: record?.key?.remoteJid || null,
+    };
 }
 
 function getProfileNumber(item) {
@@ -481,6 +501,95 @@ router.get(
             originTag: `${instance.id}:${instance.phoneNumber}`,
             count: data.length,
             data,
+        });
+    })
+);
+
+router.post(
+    "/instances/:instanceId/sync",
+    asyncHandler(async (req, res) => {
+        const instance = getInstanceById(req.params.instanceId);
+        if (!instance || !instance.active) {
+            res.status(404).json({ error: "Instancia nao encontrada ou inativa." });
+            return;
+        }
+
+        const maxPages = Math.min(Math.max(Number(req.query.maxPages || 5), 1), 50);
+        const conversationId = req.query.conversationId ? String(req.query.conversationId) : null;
+        const where = conversationId
+            ? {
+                  key: {
+                      remoteJid: conversationId,
+                  },
+              }
+            : {};
+
+        let imported = 0;
+        let deduplicated = 0;
+        let scanned = 0;
+        let totalRemote = 0;
+        let pages = 0;
+
+        for (let page = 1; page <= maxPages; page += 1) {
+            const result = await evolutionClient.fetchMessages({
+                instanceName: instance.evolutionInstance,
+                where,
+                page,
+            });
+            const payload = result?.messages || result;
+            const records = payload?.records || [];
+            totalRemote = Number(payload?.total || totalRemote || records.length);
+            pages = Number(payload?.pages || pages || 1);
+
+            if (!records.length) {
+                break;
+            }
+
+            for (const record of records) {
+                scanned += 1;
+                const normalized = normalizeInboundPayload({
+                    payload: wrapEvolutionHistoryMessage(instance, record),
+                    instanceRecord: instance,
+                    routeInstanceId: instance.id,
+                    headerInstanceName: instance.evolutionInstance,
+                });
+                const resultSave = saveInboundMessage(normalized);
+                if (resultSave.inserted) {
+                    imported += 1;
+                } else {
+                    deduplicated += 1;
+                }
+            }
+
+            if (page >= pages) {
+                break;
+            }
+        }
+
+        recordAdminAudit({
+            adminUserId: req.auth?.user?.id || null,
+            action: "INSTANCE_HISTORY_SYNC",
+            instanceId: instance.id,
+            metadata: {
+                conversationId,
+                maxPages,
+                pages,
+                totalRemote,
+                scanned,
+                imported,
+                deduplicated,
+            },
+        });
+
+        res.json({
+            instanceId: instance.id,
+            conversationId,
+            maxPages,
+            pages,
+            totalRemote,
+            scanned,
+            imported,
+            deduplicated,
         });
     })
 );

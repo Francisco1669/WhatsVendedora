@@ -329,6 +329,23 @@ class EvolutionClient {
 
         return this.setCachedValue(cacheKey, result);
     }
+
+    async fetchMessages({ instanceName, where = {}, page = 1 }) {
+        const safeInstance = encodeURIComponent(instanceName);
+        return this.runFallbackRequests(
+            [
+                {
+                    method: "post",
+                    url: `/chat/findMessages/${safeInstance}`,
+                    data: {
+                        where,
+                        page,
+                    },
+                },
+            ],
+            "fetchMessages"
+        );
+    }
 }
 
 module.exports = new EvolutionClient();

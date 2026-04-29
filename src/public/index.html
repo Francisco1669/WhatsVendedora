@@ -120,17 +120,25 @@
 
         <section class="card conversation-panel">
           <div class="panel-header conversation-header">
-            <div>
+            <div class="conversation-heading">
               <h3 id="conversationTitle">Selecione uma vendedora</h3>
               <p id="conversationMeta" class="muted">Sem instancia selecionada</p>
             </div>
 
-            <div class="range-switch" role="tablist" aria-label="Janela de tempo">
-              <button class="range-button active" type="button" data-range="24h">24h</button>
-              <button class="range-button" type="button" data-range="7d">7 dias</button>
-              <button class="range-button" type="button" data-range="all">Tudo</button>
+            <div class="conversation-tools">
+              <div class="range-switch" role="tablist" aria-label="Periodo das mensagens">
+                <button class="range-button active" type="button" data-range="24h">24h</button>
+                <button class="range-button" type="button" data-range="7d">7 dias</button>
+                <button class="range-button" type="button" data-range="all">Tudo</button>
+              </div>
+              <div class="history-actions" aria-label="Recuperar mensagens do historico">
+                <span class="history-label">Historico</span>
+                <button id="syncConversationButton" class="history-button" type="button" title="Buscar mensagens antigas desta conversa">Conversa</button>
+                <button id="syncInstanceButton" class="history-button" type="button" title="Buscar mensagens antigas de todas as conversas desta vendedora">Vendedora</button>
+              </div>
             </div>
           </div>
+          <div id="historyStatus" class="history-status hidden"></div>
 
           <div class="conversation-layout">
             <aside class="threads-panel">

@@ -105,7 +105,9 @@ function getMessageContactDetails(row) {
     "unknown";
 
   const preferredJid = fromMe
-    ? normalizeJidValue(row.toJid) || normalizeJidValue(key.remoteJidAlt) || null
+    ? (jidLooksInternal(row.toJid) ? null : normalizeJidValue(row.toJid)) ||
+      (jidLooksInternal(key.remoteJid) ? null : normalizeJidValue(key.remoteJid)) ||
+      (jidLooksInternal(key.remoteJidAlt) ? null : normalizeJidValue(key.remoteJidAlt))
     : normalizeJidValue(key.participantAlt) ||
       normalizeJidValue(envelope?.participantAlt) ||
       normalizeJidValue(key.remoteJidAlt) ||
@@ -113,7 +115,7 @@ function getMessageContactDetails(row) {
       (jidLooksInternal(row.fromJid) ? null : normalizeJidValue(row.fromJid));
 
   const contactPhone = normalizePhoneValue(preferredJid);
-  const contactName = isUsefulPushName(envelope?.pushName) ? envelope.pushName.trim() : null;
+  const contactName = !fromMe && isUsefulPushName(envelope?.pushName) ? envelope.pushName.trim() : null;
   const isGroup = conversationId.includes("@g.us");
   const contactDisplay = contactName
     ? contactPhone
@@ -190,6 +192,30 @@ function getMentionLabel(message) {
   }
 
   return null;
+}
+
+function isBetterConversationIdentity(existing, row) {
+  if (row.isGroup) {
+    return false;
+  }
+
+  if (!existing.contactPhone && row.contactPhone) {
+    return true;
+  }
+
+  if (!existing.contactName && row.contactName) {
+    return true;
+  }
+
+  if (existing.contactName && !row.contactName) {
+    return false;
+  }
+
+  if (existing.contactDisplay === "Contato sem numero" && row.contactDisplay !== "Contato sem numero") {
+    return true;
+  }
+
+  return !row.fromMe && Boolean(row.contactName || row.contactPhone);
 }
 
 function applyMentionLabels(messages) {
@@ -838,6 +864,13 @@ function listInstanceConversations(filters) {
     }
     if (!existing.contactName && row.contactName) {
       existing.contactName = row.contactName;
+    }
+    if (isBetterConversationIdentity(existing, row)) {
+      existing.contactJid = row.contactJid;
+      existing.contactPhone = row.contactPhone;
+      existing.contactName = row.contactName;
+      existing.contactDisplay = row.contactDisplay;
+      existing.displayName = row.contactDisplay;
     }
     if (
       existing.contactDisplay === existing.conversationId.replace(/@.*/, "") &&
