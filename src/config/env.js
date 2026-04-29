@@ -37,4 +37,10 @@ module.exports = {
     OWNER_BOOTSTRAP_PASSWORD: process.env.OWNER_BOOTSTRAP_PASSWORD || "",
     DEFAULT_PAGE_SIZE: parseNumber(process.env.DEFAULT_PAGE_SIZE, 50),
     MAX_PAGE_SIZE: parseNumber(process.env.MAX_PAGE_SIZE, 200),
+    S3_ENDPOINT: process.env.S3_ENDPOINT || "",
+    S3_REGION: process.env.S3_REGION || "auto",
+    S3_ACCESS_KEY: process.env.S3_ACCESS_KEY || "",
+    S3_SECRET_KEY: process.env.S3_SECRET_KEY || "",
+    S3_BUCKET: process.env.S3_BUCKET || "",
+    S3_PUBLIC_URL_PREFIX: process.env.S3_PUBLIC_URL_PREFIX || "",
 };

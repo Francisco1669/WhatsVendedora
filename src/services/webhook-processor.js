@@ -14,6 +14,7 @@ const {
     isMessageEvent,
     extractConnectionStatus,
 } = require("./origin-resolver");
+const { uploadBase64Media } = require("./s3-storage");
 
 function getHeader(headers, name) {
     const loweredName = String(name).toLowerCase();
@@ -54,6 +55,40 @@ function assertWebhookAuthorized(jobData, instanceRecord) {
         error.status = 401;
         throw error;
     }
+}
+
+async function offloadMediaToS3(payload) {
+    if (!payload?.data) return payload;
+
+    const data = payload.data;
+    const mediaObj = Array.isArray(data) ? data[0] : (data.messages && data.messages[0]) || data;
+
+    const base64Data = mediaObj?.message?.base64 || mediaObj?.base64;
+    const mimeType = mediaObj?.message?.mimetype || mediaObj?.mimetype;
+
+    if (base64Data && typeof base64Data === "string" && base64Data.length > 500) {
+        try {
+            // Some base64 strings come with data:mimetype;base64, prefix. Remove it if present.
+            const cleanBase64 = base64Data.replace(/^data:.*?;base64,/, "");
+            const s3Url = await uploadBase64Media(cleanBase64, mimeType);
+            
+            if (s3Url) {
+                if (mediaObj.message && mediaObj.message.base64) {
+                    delete mediaObj.message.base64;
+                    mediaObj.message.s3Url = s3Url;
+                }
+                if (mediaObj.base64) {
+                    delete mediaObj.base64;
+                    mediaObj.s3Url = s3Url;
+                }
+                logger.info({ s3Url }, "Media offloaded to S3 successfully");
+            }
+        } catch (err) {
+            logger.warn({ err }, "Could not offload base64 media to S3. Retaining original.");
+        }
+    }
+    
+    return payload;
 }
 
 async function resolveWebhookInstance(jobData) {
@@ -114,6 +149,8 @@ async function processEvolutionWebhookJob(jobData) {
             resolvedBy,
         };
     }
+
+    await offloadMediaToS3(jobData.body);
 
     const normalized = normalizeInboundPayload({
         payload: jobData.body,

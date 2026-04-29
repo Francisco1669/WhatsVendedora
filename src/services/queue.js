@@ -1,6 +1,7 @@
 const { Queue, Worker } = require("bullmq");
 const env = require("../config/env");
 const logger = require("../lib/logger");
+const db = require("../db/database");
 
 let webhookQueue;
 let webhookWorker;
@@ -51,41 +52,60 @@ async function enqueueEvolutionWebhook(payload) {
 }
 
 function startWebhookWorker(processor) {
-    if (webhookWorker) {
-        return webhookWorker;
+    if (!webhookWorker) {
+        webhookWorker = new Worker(
+            getQueueName(),
+            async (job) => {
+                if (job.name === "prune-database") {
+                    try {
+                        const deleted = await db.pruneOldMessages(15);
+                        logger.info({ deleted }, "Scheduled pruning of old messages completed.");
+                        return { ok: true, deleted, eventName: "prune" };
+                    } catch (err) {
+                        logger.error({ err }, "Scheduled pruning failed.");
+                        throw err;
+                    }
+                }
+                
+                return processor(job.data, job);
+            },
+            {
+                connection: buildRedisConnectionOptions(env.WEBHOOK_QUEUE_REDIS_URL),
+                concurrency: env.WEBHOOK_QUEUE_CONCURRENCY,
+            }
+        );
+
+        webhookWorker.on("completed", (job, result) => {
+            logger.info(
+                {
+                    jobId: job.id,
+                    jobName: job.name,
+                    eventName: result?.eventName,
+                    instanceId: result?.instanceId,
+                    stored: result?.stored,
+                },
+                "Job completed successfully"
+            );
+        });
+
+        webhookWorker.on("failed", (job, error) => {
+            logger.error(
+                {
+                    jobId: job?.id,
+                    jobName: job?.name,
+                    attemptsMade: job?.attemptsMade,
+                    err: error,
+                },
+                "Job failed"
+            );
+        });
+        
+        // Schedule repeatable pruning job at 3:00 AM daily if worker is starting
+        const queue = getWebhookQueue();
+        queue.add("prune-database", {}, { repeat: { pattern: "0 3 * * *" } }).catch((err) => {
+             logger.error({ err }, "Failed to schedule prune-database repeatable job");
+        });
     }
-
-    webhookWorker = new Worker(
-        getQueueName(),
-        async (job) => processor(job.data, job),
-        {
-            connection: buildRedisConnectionOptions(env.WEBHOOK_QUEUE_REDIS_URL),
-            concurrency: env.WEBHOOK_QUEUE_CONCURRENCY,
-        }
-    );
-
-    webhookWorker.on("completed", (job, result) => {
-        logger.info(
-            {
-                jobId: job.id,
-                eventName: result?.eventName,
-                instanceId: result?.instanceId,
-                stored: result?.stored,
-            },
-            "Webhook job completed"
-        );
-    });
-
-    webhookWorker.on("failed", (job, error) => {
-        logger.error(
-            {
-                jobId: job?.id,
-                attemptsMade: job?.attemptsMade,
-                err: error,
-            },
-            "Webhook job failed"
-        );
-    });
 
     return webhookWorker;
 }

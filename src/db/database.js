@@ -77,6 +77,28 @@ function jidLooksInternal(value) {
   return !jid || jid.includes("@lid") || jid.includes("@g.us");
 }
 
+function pickExternalJid(...values) {
+  for (const value of values) {
+    const jid = normalizeJidValue(value);
+    if (jid && !jidLooksInternal(jid)) {
+      return jid;
+    }
+  }
+
+  return null;
+}
+
+function pickAnyJid(...values) {
+  for (const value of values) {
+    const jid = normalizeJidValue(value);
+    if (jid) {
+      return jid;
+    }
+  }
+
+  return null;
+}
+
 function pickMessageEnvelope(rawPayload) {
   const payload = parseJsonSafe(rawPayload) || {};
   const data = payload.data;
@@ -123,14 +145,18 @@ function getMessageContactDetails(row) {
     "unknown";
 
   const preferredJid = fromMe
-    ? (jidLooksInternal(row.toJid) ? null : normalizeJidValue(row.toJid)) ||
-      (jidLooksInternal(key.remoteJid) ? null : normalizeJidValue(key.remoteJid)) ||
-      (jidLooksInternal(key.remoteJidAlt) ? null : normalizeJidValue(key.remoteJidAlt))
-    : normalizeJidValue(key.participantAlt) ||
-      normalizeJidValue(envelope?.participantAlt) ||
-      normalizeJidValue(key.remoteJidAlt) ||
-      normalizeJidValue(envelope?.remoteJidAlt) ||
-      (jidLooksInternal(row.fromJid) ? null : normalizeJidValue(row.fromJid));
+    ? pickExternalJid(row.toJid, key.remoteJid, envelope?.remoteJid, key.remoteJidAlt, envelope?.remoteJidAlt) ||
+      pickAnyJid(row.toJid, key.remoteJidAlt, key.remoteJid)
+    : pickExternalJid(
+        key.participantAlt,
+        envelope?.participantAlt,
+        row.fromJid,
+        key.remoteJid,
+        envelope?.remoteJid,
+        key.remoteJidAlt,
+        envelope?.remoteJidAlt
+      ) ||
+      pickAnyJid(key.participantAlt, envelope?.participantAlt, row.fromJid, key.remoteJidAlt, key.remoteJid);
 
   const contactPhone = normalizePhoneValue(preferredJid);
   const contactName = !fromMe && isUsefulPushName(envelope?.pushName) ? envelope.pushName.trim() : null;
@@ -150,6 +176,61 @@ function getMessageContactDetails(row) {
     contactName,
     contactDisplay,
   };
+}
+
+function getCanonicalConversationId(message) {
+  if (message.isGroup) {
+    return message.conversationId;
+  }
+
+  if (message.contactPhone && !String(message.contactPhone).includes("@lid")) {
+    return `${message.contactPhone.replace(/^\+/, "")}@s.whatsapp.net`;
+  }
+
+  return message.conversationId || message.contactJid || "unknown";
+}
+
+function collectMessageJidAliases(row) {
+  const envelope = pickMessageEnvelope(row.rawPayload);
+  const key = envelope?.key || {};
+  const ownPhone = normalizePhoneValue(row.originPhone);
+  const normalizedOwnPhone = ownPhone ? ownPhone.replace(/^\+/, "") : null;
+  const aliases = [
+    row.chatJid,
+    row.fromJid,
+    row.toJid,
+    key.remoteJid,
+    key.remoteJidAlt,
+    key.participant,
+    key.participantAlt,
+    envelope?.remoteJid,
+    envelope?.remoteJidAlt,
+    envelope?.participant,
+    envelope?.participantAlt,
+  ];
+
+  return Array.from(
+    new Set(
+      aliases
+        .map(normalizeJidValue)
+        .filter(Boolean)
+        .filter((alias) => {
+          const aliasPhone = normalizePhoneValue(alias);
+          return !normalizedOwnPhone || !aliasPhone || aliasPhone.replace(/^\+/, "") !== normalizedOwnPhone;
+        })
+    )
+  );
+}
+
+function mergeConversationAliases(existing, row, conversationId) {
+  const aliases = new Set(existing.conversationAliases || []);
+  for (const alias of [conversationId, row.conversationId, row.contactJid, ...collectMessageJidAliases(row)]) {
+    if (alias) {
+      aliases.add(alias);
+    }
+  }
+
+  existing.conversationAliases = Array.from(aliases);
 }
 
 function objectBytesToBase64(value) {
@@ -648,8 +729,17 @@ async function listInboundMessages(filters) {
   }
 
   if (filters.conversationId) {
-    values.push(filters.conversationId);
-    clauses.push(`(chat_jid = $${values.length} OR from_jid = $${values.length} OR to_jid = $${values.length})`);
+    const conversationAliases = await resolveConversationAliases(filters.instanceId, filters.conversationId);
+    values.push(conversationAliases);
+    clauses.push(`(
+      chat_jid = ANY($${values.length}) OR
+      from_jid = ANY($${values.length}) OR
+      to_jid = ANY($${values.length}) OR
+      raw_payload #>> '{data,key,remoteJid}' = ANY($${values.length}) OR
+      raw_payload #>> '{data,key,remoteJidAlt}' = ANY($${values.length}) OR
+      raw_payload #>> '{data,key,participant}' = ANY($${values.length}) OR
+      raw_payload #>> '{data,key,participantAlt}' = ANY($${values.length})
+    )`);
   }
 
   if (filters.originTag) {
@@ -684,6 +774,65 @@ async function listInboundMessages(filters) {
   );
 }
 
+async function resolveConversationAliases(instanceId, conversationId) {
+  const normalizedConversationId = normalizeJidValue(conversationId);
+  if (!normalizedConversationId) {
+    return ["unknown"];
+  }
+
+  const aliases = new Set([normalizedConversationId]);
+  const targetPhone = normalizePhoneValue(normalizedConversationId);
+
+  const clauses = [];
+  const values = [];
+  if (instanceId) {
+    values.push(instanceId);
+    clauses.push(`instance_id = $${values.length}`);
+  }
+
+  const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+  const result = await query(
+    `
+      SELECT ${selectInboundColumns()}
+      FROM ${tableName("inbound_messages")}
+      ${whereClause}
+      ORDER BY received_at DESC, id DESC
+      LIMIT 5000
+    `,
+    values
+  );
+
+  for (const rawRow of result.rows) {
+    const row = decorateInboundMessage(rawRow);
+    const rowAliases = collectMessageJidAliases(row);
+    const canonicalId = getCanonicalConversationId(row);
+    const rowPhones = new Set(
+      [row.contactPhone, ...rowAliases.map(normalizePhoneValue)]
+        .map((value) => (value ? String(value).replace(/^\+/, "") : null))
+        .filter(Boolean)
+    );
+    const normalizedTargetPhone = targetPhone ? String(targetPhone).replace(/^\+/, "") : null;
+    const matchesConversation =
+      row.conversationId === normalizedConversationId ||
+      row.contactJid === normalizedConversationId ||
+      canonicalId === normalizedConversationId ||
+      rowAliases.includes(normalizedConversationId) ||
+      (normalizedTargetPhone && rowPhones.has(normalizedTargetPhone));
+
+    if (!matchesConversation) {
+      continue;
+    }
+
+    for (const alias of [canonicalId, row.conversationId, row.contactJid, ...rowAliases]) {
+      if (alias) {
+        aliases.add(alias);
+      }
+    }
+  }
+
+  return Array.from(aliases);
+}
+
 async function listInstanceConversations(filters) {
   const clauses = ["instance_id = $1"];
   const values = [filters.instanceId];
@@ -707,12 +856,13 @@ async function listInstanceConversations(filters) {
   const rows = applyMentionLabels(result.rows.map(decorateInboundMessage));
   const grouped = new Map();
   for (const row of rows.filter((item) => item.displayable)) {
-    const conversationId = row.conversationId || row.contactJid || "unknown";
+    const conversationId = getCanonicalConversationId(row);
     const existing = grouped.get(conversationId);
 
     if (!existing) {
-      grouped.set(conversationId, {
+      const conversation = {
         conversationId,
+        conversationAliases: [],
         isGroup: Boolean(row.isGroup),
         conversationType: row.conversationType,
         contactJid: row.contactJid,
@@ -724,10 +874,13 @@ async function listInstanceConversations(filters) {
         lastTextBody: row.textBody,
         lastMessageType: row.messageType,
         totalMessages: 1,
-      });
+      };
+      mergeConversationAliases(conversation, row, conversationId);
+      grouped.set(conversationId, conversation);
       continue;
     }
 
+    mergeConversationAliases(existing, row, conversationId);
     existing.totalMessages += 1;
     if (!existing.contactPhone && row.contactPhone) {
       existing.contactPhone = row.contactPhone;
@@ -1046,6 +1199,15 @@ async function deleteInstancePermanently(instanceId) {
   }
 }
 
+async function pruneOldMessages(days = 15) {
+  const query = `
+    DELETE FROM ${tableName("messages")} 
+    WHERE created_at < NOW() - INTERVAL '${Number(days)} days'
+  `;
+  const { rowCount } = await state.pool.query(query);
+  return rowCount;
+}
+
 async function closeDatabase() {
   if (state.pool) {
     await state.pool.end();
@@ -1077,5 +1239,6 @@ module.exports = {
   listAdminAudits,
   listSellerSummaries,
   deleteInstancePermanently,
+  pruneOldMessages,
   closeDatabase,
 };
