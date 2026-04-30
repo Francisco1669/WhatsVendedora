@@ -872,7 +872,8 @@ function renderMessages() {
     }
 
     const seller = getSellerById(state.selectedInstanceId);
-    const outgoingAuthor = seller?.sellerLabel || "Vendedora";
+    const outgoingAuthor = seller?.sellerLabel || "Mundo da Variedade";
+    const outgoingAvatarUrl = seller?.avatarUrl || null;
 
     dom.messagesFeed.innerHTML = state.messages
         .slice()
@@ -883,12 +884,13 @@ function renderMessages() {
             const author = outgoing
                 ? outgoingAuthor
                 : message.contactDisplay || normalizeJid(message.fromJid || message.chatJid || "Contato");
+            const avatarUrl = outgoing ? outgoingAvatarUrl : message.avatarUrl;
             const body = message.textBody || getMessageTypeLabel(message.messageType);
 
             return `
         <article class="message-item ${cssClass}">
           <div class="message-meta message-meta-rich">
-            ${renderAvatar(message.avatarUrl, author, "message-avatar")}
+            ${renderAvatar(avatarUrl, author, "message-avatar")}
             <span class="message-author-block">
               <span>${escapeHtml(author)}</span>
               <span class="message-context">${escapeHtml(message.isGroup ? message.groupName || "Grupo" : "Individual")}</span>

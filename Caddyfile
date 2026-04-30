@@ -1,0 +1,21 @@
+{
+    email {$ACME_EMAIL}
+}
+
+{$PUBLIC_DOMAIN} {
+    encode gzip zstd
+
+    @webhook path /webhooks/evolution*
+    request_body @webhook {
+        max_size 10MB
+    }
+
+    reverse_proxy whatsvendedora-api:3333 {
+        transport http {
+            dial_timeout 10s
+            response_header_timeout 30s
+            read_timeout 65s
+            write_timeout 65s
+        }
+    }
+}

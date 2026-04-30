@@ -9,8 +9,11 @@ const { comparePassword } = require("../services/password-service");
 const { signAccessToken, isJwtConfigured } = require("../services/jwt-service");
 const { loginSchema } = require("../validation/schemas");
 const { requireAuth } = require("../middleware/require-auth");
+const { loginLimiter } = require("../middleware/rate-limiters");
 
 const router = express.Router();
+
+router.use(loginLimiter);
 
 router.post(
     "/login",

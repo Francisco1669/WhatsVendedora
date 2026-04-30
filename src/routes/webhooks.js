@@ -2,8 +2,10 @@ const express = require("express");
 const { enqueueEvolutionWebhook } = require("../services/queue");
 const { extractEventName } = require("../services/origin-resolver");
 const asyncHandler = require("../utils/async-handler");
+const { webhookLimiter } = require("../middleware/rate-limiters");
 
 const router = express.Router();
+router.use(webhookLimiter);
 
 function pickWebhookHeaders(req) {
     return {
@@ -18,7 +20,7 @@ function pickWebhookHeaders(req) {
 
 async function handleEvolutionWebhook(req, res) {
     const eventName = extractEventName(req.body);
-    const requestId = req.get("x-request-id") || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const requestId = req.requestId || req.get("x-request-id") || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const job = await enqueueEvolutionWebhook({
         requestId,
         receivedAt: new Date().toISOString(),

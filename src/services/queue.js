@@ -58,8 +58,8 @@ function startWebhookWorker(processor) {
             async (job) => {
                 if (job.name === "prune-database") {
                     try {
-                        const deleted = await db.pruneOldMessages(15);
-                        logger.info({ deleted }, "Scheduled pruning of old messages completed.");
+                        const deleted = await db.pruneOldMessages(env.MESSAGE_RETENTION_DAYS);
+                        logger.info({ deleted, days: env.MESSAGE_RETENTION_DAYS }, "Scheduled pruning of old messages completed.");
                         return { ok: true, deleted, eventName: "prune" };
                     } catch (err) {
                         logger.error({ err }, "Scheduled pruning failed.");
@@ -100,11 +100,13 @@ function startWebhookWorker(processor) {
             );
         });
         
-        // Schedule repeatable pruning job at 3:00 AM daily if worker is starting
-        const queue = getWebhookQueue();
-        queue.add("prune-database", {}, { repeat: { pattern: "0 3 * * *" } }).catch((err) => {
-             logger.error({ err }, "Failed to schedule prune-database repeatable job");
-        });
+        if (env.ENABLE_RETENTION_JOB) {
+            // Schedule repeatable pruning job at 3:00 AM daily if worker is starting
+            const queue = getWebhookQueue();
+            queue.add("prune-database", {}, { repeat: { pattern: "0 3 * * *" } }).catch((err) => {
+                logger.error({ err }, "Failed to schedule prune-database repeatable job");
+            });
+        }
     }
 
     return webhookWorker;

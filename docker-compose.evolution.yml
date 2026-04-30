@@ -1,4 +1,24 @@
 services:
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: whatsvendedora-caddy
+    restart: unless-stopped
+    depends_on:
+      whatsvendedora-api:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    env_file:
+      - ${APP_ENV_FILE:-.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - public
+      - backend
+
   whatsvendedora-api:
     build:
       context: .
@@ -6,14 +26,12 @@ services:
     container_name: whatsvendedora-api
     restart: unless-stopped
     env_file:
-      - .env
+      - ${APP_ENV_FILE:-.env}
     depends_on:
       evolution-postgres:
         condition: service_healthy
       evolution-redis:
         condition: service_started
-    ports:
-      - "3333:3333"
     environment:
       NODE_ENV: "production"
       PORT: "3333"
@@ -21,17 +39,26 @@ services:
       EVOAPICLOUD_API_URL: "http://evolution-api:8080"
       EVOLUTION_MANAGER_URL: "http://evolution-api:8080/manager"
       EVOAPICLOUD_MANAGER_URL: "http://evolution-api:8080/manager"
-      PUBLIC_WEBHOOK_BASE_URL: "http://whatsvendedora-api:3333"
-      POSTGRES_DATABASE_URL: "postgresql://evolution:evolution@evolution-postgres:5432/evolution"
+      PUBLIC_WEBHOOK_BASE_URL: "${PUBLIC_WEBHOOK_BASE_URL:-http://localhost:3333}"
+      POSTGRES_DATABASE_URL: "${POSTGRES_DATABASE_URL:-postgresql://evolution:evolution@evolution-postgres:5432/evolution}"
       POSTGRES_SCHEMA: "whatsvendedora"
       WEBHOOK_QUEUE_REDIS_URL: "redis://evolution-redis:6379/7"
       WEBHOOK_QUEUE_NAME: "whatsvendedora-webhooks"
+      CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-http://localhost:3333}"
+      RATE_LIMIT_LOGIN_WINDOW_MS: "${RATE_LIMIT_LOGIN_WINDOW_MS:-900000}"
+      RATE_LIMIT_LOGIN_MAX: "${RATE_LIMIT_LOGIN_MAX:-10}"
+      RATE_LIMIT_WEBHOOK_WINDOW_MS: "${RATE_LIMIT_WEBHOOK_WINDOW_MS:-60000}"
+      RATE_LIMIT_WEBHOOK_MAX: "${RATE_LIMIT_WEBHOOK_MAX:-300}"
+      MESSAGE_RETENTION_DAYS: "${MESSAGE_RETENTION_DAYS:-15}"
+      ENABLE_RETENTION_JOB: "${ENABLE_RETENTION_JOB:-true}"
       S3_ENDPOINT: "${S3_ENDPOINT}"
       S3_REGION: "${S3_REGION}"
       S3_ACCESS_KEY: "${S3_ACCESS_KEY}"
       S3_SECRET_KEY: "${S3_SECRET_KEY}"
       S3_BUCKET: "${S3_BUCKET}"
       S3_PUBLIC_URL_PREFIX: "${S3_PUBLIC_URL_PREFIX}"
+    networks:
+      - backend
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3333/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 15s
@@ -43,15 +70,15 @@ services:
     container_name: evolution-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: evolution
-      POSTGRES_USER: evolution
-      POSTGRES_PASSWORD: evolution
-    ports:
-      - "5432:5432"
+      POSTGRES_DB: "${POSTGRES_DB:-evolution}"
+      POSTGRES_USER: "${POSTGRES_USER:-evolution}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-evolution}"
     volumes:
       - evolution_postgres_data:/var/lib/postgresql/data
+    networks:
+      - backend
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U evolution -d evolution"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-evolution} -d ${POSTGRES_DB:-evolution}"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -60,10 +87,10 @@ services:
     image: redis:7-alpine
     container_name: evolution-redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     volumes:
       - evolution_redis_data:/data
+    networks:
+      - backend
 
   evolution-api:
     image: evoapicloud/evolution-api:v2.3.6
@@ -76,17 +103,14 @@ services:
         condition: service_started
       whatsvendedora-api:
         condition: service_started
-    ports:
-      - "8080:8080"
     environment:
       SERVER_TYPE: "http"
       SERVER_PORT: "8080"
-      SERVER_URL: "http://localhost:8080"
+      SERVER_URL: "${EVOLUTION_SERVER_URL:-http://localhost:8080}"
       AUTHENTICATION_API_KEY: "${EVOLUTION_API_KEY}"
       AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES: "true"
-
       DATABASE_PROVIDER: "postgresql"
-      DATABASE_CONNECTION_URI: "postgresql://evolution:evolution@evolution-postgres:5432/evolution?schema=public"
+      DATABASE_CONNECTION_URI: "${EVOLUTION_DATABASE_CONNECTION_URI:-postgresql://evolution:evolution@evolution-postgres:5432/evolution?schema=public}"
       DATABASE_CONNECTION_CLIENT_NAME: "testezap"
       DATABASE_SAVE_DATA_INSTANCE: "true"
       DATABASE_SAVE_DATA_NEW_MESSAGE: "false"
@@ -96,25 +120,33 @@ services:
       DATABASE_SAVE_DATA_LABELS: "false"
       DATABASE_SAVE_DATA_HISTORIC: "false"
       DATABASE_DELETE_MESSAGE: "false"
-
       CACHE_REDIS_ENABLED: "true"
       CACHE_REDIS_URI: "redis://evolution-redis:6379/6"
       CACHE_REDIS_TTL: "604800"
       CACHE_REDIS_PREFIX_KEY: "evolution"
       CACHE_LOCAL_ENABLED: "false"
-
-      # Ajuste para um valor valido na sua rede.
-      # Em Windows + Docker Desktop, host.docker.internal costuma funcionar.
-      WEBHOOK_GLOBAL_URL: "${EVOLUTION_WEBHOOK_GLOBAL_URL}"
+      WEBHOOK_GLOBAL_URL: "${EVOLUTION_WEBHOOK_GLOBAL_URL:-http://whatsvendedora-api:3333/webhooks/evolution}"
       WEBHOOK_GLOBAL_ENABLED: "${EVOLUTION_WEBHOOK_GLOBAL_ENABLED:-true}"
       WEBHOOK_GLOBAL_WEBHOOK_BY_EVENTS: "false"
       WEBHOOK_EVENTS_APPLICATION_STARTUP: "false"
       WEBHOOK_EVENTS_QRCODE_UPDATED: "true"
       WEBHOOK_EVENTS_MESSAGES_UPSERT: "true"
       WEBHOOK_EVENTS_CONNECTION_UPDATE: "true"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/ >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
 
 volumes:
+  caddy_data:
+  caddy_config:
   evolution_postgres_data:
   evolution_redis_data:
+
+networks:
+  public:
+  backend:
+    internal: true

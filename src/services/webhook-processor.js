@@ -119,6 +119,7 @@ async function resolveWebhookInstance(jobData) {
 }
 
 async function processEvolutionWebhookJob(jobData) {
+    const startedAt = Date.now();
     const { instance, routeInstanceId, resolvedBy } = await resolveWebhookInstance(jobData);
 
     if (!instance || !instance.active) {
@@ -163,10 +164,13 @@ async function processEvolutionWebhookJob(jobData) {
 
     logger.info(
         {
+            requestId: jobData.requestId,
             instanceId: normalized.instanceId,
             originTag: normalized.originTag,
             evolutionMessageId: normalized.evolutionMessageId,
             stored: saveResult.inserted,
+            eventName: normalized.eventName,
+            processingMs: Date.now() - startedAt,
         },
         "Webhook processed"
     );

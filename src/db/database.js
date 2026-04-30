@@ -469,6 +469,7 @@ async function initializeDatabase() {
       CREATE INDEX IF NOT EXISTS idx_wv_instances_phone ON ${tableName("instances")}(phone_number);
       CREATE INDEX IF NOT EXISTS idx_wv_messages_instance ON ${tableName("inbound_messages")}(instance_id, received_at DESC);
       CREATE INDEX IF NOT EXISTS idx_wv_messages_origin ON ${tableName("inbound_messages")}(origin_tag, received_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_wv_messages_received_at ON ${tableName("inbound_messages")}(received_at);
       CREATE INDEX IF NOT EXISTS idx_wv_admin_users_email ON ${tableName("admin_users")}(email);
       CREATE INDEX IF NOT EXISTS idx_wv_admin_audit_logs_user ON ${tableName("admin_audit_logs")}(admin_user_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_wv_admin_audit_logs_instance ON ${tableName("admin_audit_logs")}(instance_id, created_at DESC);
@@ -1200,12 +1201,16 @@ async function deleteInstancePermanently(instanceId) {
 }
 
 async function pruneOldMessages(days = 15) {
-  const query = `
-    DELETE FROM ${tableName("messages")} 
-    WHERE created_at < NOW() - INTERVAL '${Number(days)} days'
-  `;
-  const { rowCount } = await state.pool.query(query);
-  return rowCount;
+  await initializeDatabase();
+  const safeDays = Math.max(1, Number(days) || 15);
+  const result = await query(
+    `
+      DELETE FROM ${tableName("inbound_messages")}
+      WHERE received_at < NOW() - ($1::int * INTERVAL '1 day')
+    `,
+    [safeDays]
+  );
+  return result.rowCount || 0;
 }
 
 async function closeDatabase() {

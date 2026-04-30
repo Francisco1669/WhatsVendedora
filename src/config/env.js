@@ -32,6 +32,16 @@ module.exports = {
     AUTH_JWT_SECRET: process.env.AUTH_JWT_SECRET || "",
     AUTH_JWT_EXPIRES_IN: process.env.AUTH_JWT_EXPIRES_IN || "12h",
     AUTH_BCRYPT_ROUNDS: parseNumber(process.env.AUTH_BCRYPT_ROUNDS, 10),
+    CORS_ALLOWED_ORIGINS: (process.env.CORS_ALLOWED_ORIGINS || "")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+    RATE_LIMIT_LOGIN_WINDOW_MS: parseNumber(process.env.RATE_LIMIT_LOGIN_WINDOW_MS, 15 * 60 * 1000),
+    RATE_LIMIT_LOGIN_MAX: parseNumber(process.env.RATE_LIMIT_LOGIN_MAX, 10),
+    RATE_LIMIT_WEBHOOK_WINDOW_MS: parseNumber(process.env.RATE_LIMIT_WEBHOOK_WINDOW_MS, 60 * 1000),
+    RATE_LIMIT_WEBHOOK_MAX: parseNumber(process.env.RATE_LIMIT_WEBHOOK_MAX, 300),
+    MESSAGE_RETENTION_DAYS: parseNumber(process.env.MESSAGE_RETENTION_DAYS, 15),
+    ENABLE_RETENTION_JOB: String(process.env.ENABLE_RETENTION_JOB || "true").toLowerCase() === "true",
     OWNER_BOOTSTRAP_NAME: process.env.OWNER_BOOTSTRAP_NAME || "Dona",
     OWNER_BOOTSTRAP_EMAIL: process.env.OWNER_BOOTSTRAP_EMAIL || "",
     OWNER_BOOTSTRAP_PASSWORD: process.env.OWNER_BOOTSTRAP_PASSWORD || "",

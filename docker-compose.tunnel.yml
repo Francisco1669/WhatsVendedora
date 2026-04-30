@@ -1,0 +1,17 @@
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: whatsvendedora-cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    env_file:
+      - ${APP_ENV_FILE:-.env}
+    depends_on:
+      whatsvendedora-api:
+        condition: service_healthy
+    networks:
+      - backend
+
+networks:
+  backend:
+    external: false
