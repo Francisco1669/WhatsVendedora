@@ -1,142 +1,318 @@
-# Deploy de Producao - VPS Ubuntu + Docker
+# Deploy em VPS (Guia Completo para Iniciantes)
 
-## 1) Preparar VPS
+Este guia foi feito para quem sabe pouco de infra e quer colocar o sistema em producao com o menor custo possivel.
 
-Sistema recomendado: Ubuntu 24.04 LTS.
+Objetivo final:
+- VPS Linux rodando containers Docker
+- Dominio `.com.br` no Registro.br
+- HTTPS automatico com Caddy
+- Backup diario do banco
+
+---
+
+## 0) Visao geral (o que voce vai fazer)
+
+1. Comprar dominio no Registro.br
+2. Comprar VPS Linux na Hostinger
+3. Configurar DNS (Registro.br direto ou Cloudflare Free)
+4. Instalar Docker na VPS
+5. Subir o projeto com `docker compose`
+6. Validar painel + HTTPS
+7. Ativar backup diario
+
+---
+
+## 1) Custo minimo recomendado
+
+Configuracao inicial recomendada:
+- VPS: `2 vCPU`, `4 GB RAM`, `60-80 GB SSD/NVMe`
+- SO: `Ubuntu 24.04 LTS`
+- Dominio: `seunegocio.com.br`
+
+Observacao:
+- O dominio voce paga separado (Registro.br).
+- Cloudflare (DNS/proxy) pode ser plano Free.
+
+---
+
+## 2) Comprar dominio no Registro.br
+
+1. Acesse: `https://registro.br/`
+2. Pesquise e registre seu dominio (`.com.br`).
+3. Finalize pagamento.
+4. Deixe aberto o painel do dominio (vai usar depois para DNS).
+
+Voce vai precisar depois de:
+- Nome do dominio (ex.: `meudominio.com.br`)
+
+---
+
+## 3) Comprar VPS na Hostinger (passo a passo)
+
+1. No painel da Hostinger, contrate uma VPS Linux.
+2. Escolha plano com no minimo `2 vCPU / 4 GB RAM`.
+3. Sistema operacional: `Ubuntu 24.04`.
+4. Defina senha root forte.
+5. Conclua a criacao da VPS.
+6. Copie o `IP publico` da VPS.
+
+Depois, conecte por SSH no seu computador:
 
 ```bash
-sudo apt update && sudo apt upgrade -y
-sudo timedatectl set-timezone America/Sao_Paulo
-sudo apt install -y ca-certificates curl gnupg
+ssh root@SEU_IP_DA_VPS
+```
+
+Se SSH por senha estiver bloqueado, use a opcao de terminal web no painel da Hostinger para os primeiros comandos.
+
+---
+
+## 4) Configurar DNS do dominio para a VPS
+
+Voce tem 2 formas. Recomendada para iniciantes: **usar Cloudflare Free**.
+
+### Opcao A (recomendada): Registro.br + Cloudflare Free
+
+1. Crie conta em `https://cloudflare.com`.
+2. Clique em adicionar site e informe seu dominio.
+3. Escolha plano Free.
+4. Cloudflare vai mostrar 2 nameservers.
+5. No Registro.br, altere os DNS do dominio para os nameservers do Cloudflare.
+6. No Cloudflare, crie registros:
+   - `A` para `@` apontando para o IP da VPS
+   - `A` para `www` apontando para o IP da VPS
+   - Proxy pode ficar `Proxied` (nuvem laranja) ou `DNS only` (cinza). Para evitar surpresa no inicio, use `DNS only`.
+
+### Opcao B: DNS direto no Registro.br
+
+Crie registros `A`:
+- Host `@` -> IP da VPS
+- Host `www` -> IP da VPS
+
+---
+
+## 5) Preparar a VPS (Ubuntu)
+
+Conectado na VPS, rode:
+
+```bash
+apt update && apt upgrade -y
+timedatectl set-timezone America/Sao_Paulo
+apt install -y ca-certificates curl git
 ```
 
 Instalar Docker:
 
 ```bash
 curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker $USER
-newgrp docker
 docker --version
 docker compose version
 ```
 
-## 2) Estrutura de deploy
+---
+
+## 6) Baixar o projeto na VPS
 
 ```bash
-sudo mkdir -p /opt/mundo-variedade
-sudo chown -R $USER:$USER /opt/mundo-variedade
+mkdir -p /opt/mundo-variedade
 cd /opt/mundo-variedade
-```
-
-Clone o projeto e crie `.env.production`:
-
-```bash
+git clone SEU_REPOSITORIO_GIT .
 cp .env.production.example .env.production
 ```
 
-Preencha no minimo:
-
-- `PUBLIC_DOMAIN`
-- `ACME_EMAIL`
-- `POSTGRES_PASSWORD`
-- `POSTGRES_DATABASE_URL`
-- `EVOLUTION_DATABASE_CONNECTION_URI`
-- `AUTH_JWT_SECRET`
-- `OWNER_BOOTSTRAP_EMAIL`
-- `OWNER_BOOTSTRAP_PASSWORD`
-- `EVOLUTION_API_KEY`
-
-## 3) Subir stack
+Edite o arquivo:
 
 ```bash
+nano .env.production
+```
+
+---
+
+## 7) Preencher `.env.production` (campos obrigatorios)
+
+Preencha no minimo com valores reais:
+- `PUBLIC_DOMAIN=app.seudominio.com.br` (ou o dominio que voce vai usar)
+- `ACME_EMAIL=seu-email@dominio.com`
+- `POSTGRES_PASSWORD=...` (forte)
+- `POSTGRES_DATABASE_URL=...`
+- `EVOLUTION_DATABASE_CONNECTION_URI=...`
+- `AUTH_JWT_SECRET=...` (forte)
+- `OWNER_BOOTSTRAP_EMAIL=...`
+- `OWNER_BOOTSTRAP_PASSWORD=...` (forte)
+- `EVOLUTION_API_KEY=...` (forte)
+
+Gerar segredos fortes (rode 3-4 vezes e use cada valor em uma chave diferente):
+
+```bash
+openssl rand -hex 32
+```
+
+Importante:
+- Nao use senhas como `evolution`, `admin123` etc.
+- `PUBLIC_WEBHOOK_BASE_URL` em producao com compose interno costuma ficar `http://whatsvendedora-api:3333`.
+
+---
+
+## 8) Subir o ambiente de producao
+
+```bash
+cd /opt/mundo-variedade
 APP_ENV_FILE=.env.production docker compose --env-file .env.production -f docker-compose.evolution.yml up -d --build
+```
+
+Ver status:
+
+```bash
 APP_ENV_FILE=.env.production docker compose --env-file .env.production -f docker-compose.evolution.yml ps
 ```
 
-## 4) Validar
-
-1. DNS apontado para a VPS
-2. Certificado TLS emitido pelo Caddy
-3. Acesso ao painel: `https://SEU_DOMINIO/panel`
-4. Health interno da API:
+Ver logs do Caddy (HTTPS):
 
 ```bash
-docker compose --env-file .env.production -f docker-compose.evolution.yml exec whatsvendedora-api wget -qO- http://127.0.0.1:3333/health
-```
-
-## 5) Operacao
-
-Deploy padrao:
-
-```bash
-bash scripts/deploy.sh
-```
-
-Logs:
-
-```bash
-docker compose --env-file .env.production -f docker-compose.evolution.yml logs -f whatsvendedora-api
 APP_ENV_FILE=.env.production docker compose --env-file .env.production -f docker-compose.evolution.yml logs -f caddy
 ```
 
-## 6) Backup e restore
-
-Backup manual:
+Ver health da API:
 
 ```bash
+APP_ENV_FILE=.env.production docker compose --env-file .env.production -f docker-compose.evolution.yml exec whatsvendedora-api wget -qO- http://127.0.0.1:3333/health
+```
+
+---
+
+## 9) Firewall minimo (obrigatorio)
+
+Abrir somente `22`, `80`, `443`.
+
+Se usar UFW no Ubuntu:
+
+```bash
+ufw allow 22/tcp
+ufw allow 80/tcp
+ufw allow 443/tcp
+ufw enable
+ufw status
+```
+
+Nao exponha portas:
+- `5432` (Postgres)
+- `6379` (Redis)
+- `8080` (Evolution API)
+- `3333` (app interna, idealmente atras do Caddy)
+
+---
+
+## 10) Validar em producao
+
+Checklist:
+1. `https://SEU_DOMINIO/panel` abre no navegador.
+2. Certificado HTTPS valido (cadeado).
+3. Login com usuario bootstrap.
+4. Endpoint de health responde.
+
+Comando de logs gerais:
+
+```bash
+APP_ENV_FILE=.env.production docker compose --env-file .env.production -f docker-compose.evolution.yml logs -f --tail=200
+```
+
+---
+
+## 11) Rotina de deploy (atualizacao)
+
+Quando tiver atualizacao do codigo:
+
+```bash
+cd /opt/mundo-variedade
+git pull
+bash scripts/deploy.sh
+```
+
+---
+
+## 12) Backup diario do banco
+
+Teste backup manual:
+
+```bash
+cd /opt/mundo-variedade
 bash scripts/backup-postgres.sh
 ```
 
-Restore:
+Agendar no cron (03:30 todo dia):
 
 ```bash
-bash scripts/restore-postgres.sh /opt/mundo-variedade/backups/daily/evolution-AAAAMMDD-HHMMSS.sql.gz
+crontab -e
 ```
 
-Cron sugerido (03:30 todo dia):
+Adicione a linha:
 
 ```bash
 30 3 * * * cd /opt/mundo-variedade && /usr/bin/bash scripts/backup-postgres.sh >> /var/log/mundo-variedade-backup.log 2>&1
 ```
 
-## 7) Rollback
+---
 
-1. Ver imagens disponiveis:
+## 13) Rollback rapido
+
+Se um deploy quebrar:
+
+1. Veja imagens disponiveis:
 
 ```bash
 docker images | grep whatsvendedora-whatsvendedora-api
 ```
 
-2. Ajuste temporario no `docker-compose.evolution.yml` para usar a tag anterior em `whatsvendedora-api`.
+2. Ajuste temporariamente a imagem/tag anterior no `docker-compose.evolution.yml`.
 3. Reaplique:
 
 ```bash
-docker compose --env-file .env.production -f docker-compose.evolution.yml up -d
+APP_ENV_FILE=.env.production docker compose --env-file .env.production -f docker-compose.evolution.yml up -d
 ```
 
-## 8) Seguranca minima de rede
+---
 
-- Expor somente `80` e `443` no firewall/security group.
-- Nao expor `5432`, `6379`, `8080` e `3333`.
-- Usar senhas fortes e rotacionar periodicamente.
+## 14) Quando usar Cloudflare Tunnel?
 
-## 9) Homologacao sem dominio proprio (Cloudflare Tunnel)
+Use Tunnel apenas para homologacao temporaria sem dominio final.
+Para producao final com dominio proprio, prefira:
+- DNS apontando para VPS
+- Caddy emitindo HTTPS automatico
 
-Se voce quiser validar com cliente antes de pagar dominio:
+---
 
-1. Crie um tunnel no Cloudflare Zero Trust e copie `CLOUDFLARE_TUNNEL_TOKEN`.
-2. No `.env.production`, preencha:
-   - `CLOUDFLARE_TUNNEL_TOKEN`
-   - `EVOLUTION_SERVER_URL` com a URL publica do tunnel
-   - `CORS_ALLOWED_ORIGINS` com a mesma URL
-3. Suba com compose de tunnel (sem Caddy):
+## 15) Troubleshooting rapido
+
+Ver containers:
 
 ```bash
-APP_ENV_FILE=.env.production docker compose --env-file .env.production -f docker-compose.evolution.yml -f docker-compose.tunnel.yml up -d --build whatsvendedora-api evolution-postgres evolution-redis evolution-api cloudflared
+docker ps -a
 ```
 
-4. Verifique logs:
+Reiniciar stack:
 
 ```bash
-APP_ENV_FILE=.env.production docker compose --env-file .env.production -f docker-compose.evolution.yml -f docker-compose.tunnel.yml logs -f cloudflared whatsvendedora-api evolution-api
+APP_ENV_FILE=.env.production docker compose --env-file .env.production -f docker-compose.evolution.yml down
+APP_ENV_FILE=.env.production docker compose --env-file .env.production -f docker-compose.evolution.yml up -d --build
 ```
+
+Ver logs de um servico:
+
+```bash
+APP_ENV_FILE=.env.production docker compose --env-file .env.production -f docker-compose.evolution.yml logs -f whatsvendedora-api
+```
+
+---
+
+## 16) Resumo direto
+
+Sim, seu projeto esta containerizado.
+Mas producao pronta nao e so "subir container".
+Voce precisa de:
+- dominio + DNS
+- HTTPS
+- firewall
+- segredos fortes
+- backup
+- rotina de deploy
+
+Com este guia, voce cobre tudo isso com menor custo e complexidade.

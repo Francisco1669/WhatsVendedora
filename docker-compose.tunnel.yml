@@ -10,7 +10,7 @@ services:
     dns:
       - 1.1.1.1
       - 1.0.0.1
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    command: tunnel --no-autoupdate --protocol http2 --url http://whatsvendedora-caddy:80
     env_file:
       - ${APP_ENV_FILE:-.env.production}
     depends_on:
@@ -18,7 +18,10 @@ services:
         condition: service_healthy
     networks:
       - backend
+      - public
 
 networks:
   backend:
+    external: false
+  public:
     external: false

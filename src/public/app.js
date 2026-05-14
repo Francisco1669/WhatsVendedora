@@ -444,7 +444,7 @@ async function requestSellerQr(instanceId) {
         return;
     }
 
-    dom.qrCardTitle.textContent = `Conectar ${seller.sellerLabel || seller.instanceId}`;
+    dom.qrCardTitle.textContent = "QR Code";
     dom.qrCardMeta.textContent = "Gerando QR code...";
     dom.qrImage.classList.add("hidden");
     dom.qrRaw.classList.add("hidden");
@@ -469,14 +469,10 @@ async function requestSellerQr(instanceId) {
 }
 
 function showQrCard(instanceId, qrPayload, connectData = null) {
-    const seller = getSellerById(instanceId);
-    const label = seller?.sellerLabel || instanceId;
     const qr = resolveQrDisplayData(qrPayload, connectData);
 
-    dom.qrCardTitle.textContent = `Conectar ${label}`;
-    const connectState = connectData?.connectionState?.instance?.state || connectData?.connectionState?.state;
-    const stateSuffix = connectState ? ` Estado atual: ${connectState}.` : "";
-    dom.qrCardMeta.textContent = `Instancia ${instanceId}: abra o WhatsApp da vendedora e escaneie o QR.${stateSuffix}`;
+    dom.qrCardTitle.textContent = "QR Code";
+    dom.qrCardMeta.textContent = "";
 
     if (qr.imageSrc) {
         dom.qrImage.src = qr.imageSrc;
@@ -486,13 +482,8 @@ function showQrCard(instanceId, qrPayload, connectData = null) {
         dom.qrImage.classList.add("hidden");
     }
 
-    if (qr.rawText) {
-        dom.qrRaw.textContent = qr.rawText;
-        dom.qrRaw.classList.remove("hidden");
-    } else {
-        dom.qrRaw.textContent = "";
-        dom.qrRaw.classList.add("hidden");
-    }
+    dom.qrRaw.textContent = "";
+    dom.qrRaw.classList.add("hidden");
 
     dom.qrCard.classList.remove("hidden");
 }
@@ -524,20 +515,21 @@ function resolveQrDisplayData(qrPayload, connectData = null) {
         if (!text || nonQrStates.has(text.toLowerCase())) {
             return {
                 imageSrc: null,
-                rawText: getPendingReasonMessage(connectData, text || "indefinido"),
+                rawText: "",
             };
         }
         return {
             imageSrc: toQrImageSrc(text),
-            rawText: text,
+            rawText: "",
         };
     }
 
     if (typeof qrPayload === "object") {
-        if (Number(qrPayload.count || 0) === 0) {
+        const hasCountField = Object.prototype.hasOwnProperty.call(qrPayload, "count");
+        if (hasCountField && Number(qrPayload.count) === 0) {
             return {
                 imageSrc: null,
-                rawText: `A Evolution ainda nao devolveu o QR por HTTP.\nSe isso persistir, abra o manager em ${getEvolutionManagerUrl()} e conecte a instancia por la uma vez.`,
+                rawText: "",
             };
         }
 
@@ -566,10 +558,7 @@ function resolveQrDisplayData(qrPayload, connectData = null) {
 
         return {
             imageSrc: toQrImageSrc(stringCandidate || ""),
-            rawText:
-                stringCandidate
-                    ? JSON.stringify(qrPayload, null, 2)
-                    : getPendingReasonMessage(connectData),
+            rawText: "",
         };
     }
 
@@ -671,7 +660,8 @@ async function onSellerFormSubmit(event) {
     
     let evolutionInstance = dom.sellerEvolutionInput.value.trim();
     if (!evolutionInstance && label) {
-        evolutionInstance = "evo_" + label.toLowerCase().replace(/[^a-z0-9]/g, "").substring(0, 10) + Math.floor(Math.random() * 1000);
+        const evolutionBase = normalizeInstanceId(label).replace(/-/g, "").slice(0, 12) || "seller";
+        evolutionInstance = `evo_${evolutionBase}_${buildUniqueSuffix()}`;
         dom.sellerEvolutionInput.value = evolutionInstance;
     }
     const active = true;
@@ -705,7 +695,8 @@ async function onSellerFormSubmit(event) {
 
         let instanceId = dom.sellerIdInput.value.trim();
         if (!instanceId) {
-            instanceId = label.toLowerCase().replace(/[^a-z0-9]/g, "").substring(0, 10) + "_" + Math.floor(Math.random() * 1000);
+            const instanceBase = normalizeInstanceId(label).replace(/-/g, "_").slice(0, 12) || "seller";
+            instanceId = `${instanceBase}_${buildUniqueSuffix()}`;
             dom.sellerIdInput.value = instanceId;
         }
 
@@ -721,7 +712,7 @@ async function onSellerFormSubmit(event) {
             },
         });
 
-        state.selectedInstanceId = instanceId;
+        state.selectedInstanceId = payload?.data?.id || instanceId;
         setSellerFormCreateMode();
         await refreshDashboard({ preserveSelection: true });
 
@@ -769,6 +760,12 @@ function normalizeInstanceId(value) {
         .replace(/[^a-z0-9_-]+/g, "-")
         .replace(/-+/g, "-")
         .replace(/^-|-$/g, "");
+}
+
+function buildUniqueSuffix() {
+    const timePart = Date.now().toString(36);
+    const randomPart = Math.random().toString(36).slice(2, 6);
+    return `${timePart}${randomPart}`;
 }
 
 async function loadConversationsForInstance(instanceId, { preserveConversation }) {

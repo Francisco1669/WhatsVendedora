@@ -5,6 +5,7 @@ const {
     upsertInstance,
     listInstances,
     getInstanceById,
+    getInstanceByEvolutionInstance,
     listInboundMessages,
     listInstanceConversations,
     saveInboundMessage,
@@ -93,6 +94,36 @@ function hasUsefulQrData(qrData) {
         const normalized = value.trim().toLowerCase();
         return normalized.length > 0 && !nonQrStates.has(normalized);
     });
+}
+
+function buildIdSuffix() {
+    return randomBytes(3).toString("hex");
+}
+
+async function allocateAvailableInstanceId(requestedId) {
+    const normalizedBase = String(requestedId || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, "_")
+        .replace(/_+/g, "_")
+        .replace(/^_+|_+$/g, "")
+        .slice(0, 32);
+    const base = normalizedBase || "seller";
+
+    const exactMatch = await getInstanceById(base);
+    if (!exactMatch) {
+        return base;
+    }
+
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+        const candidate = `${base}_${buildIdSuffix()}`.slice(0, 40);
+        const exists = await getInstanceById(candidate);
+        if (!exists) {
+            return candidate;
+        }
+    }
+
+    throw new Error("Nao foi possivel gerar um identificador unico para a instancia.");
 }
 
 function classifyProvisionWarning(error) {
@@ -357,7 +388,24 @@ async function enrichMessage(instance, message, groupCache = new Map(), avatarCa
 router.post(
     "/instances",
     asyncHandler(async (req, res) => {
-        const payload = instancePayloadSchema.parse(req.body || {});
+        const parsedPayload = instancePayloadSchema.parse(req.body || {});
+        const allocatedId = await allocateAvailableInstanceId(parsedPayload.id);
+        const payload = {
+            ...parsedPayload,
+            id: allocatedId,
+        };
+
+        const existingByEvolutionInstance = await getInstanceByEvolutionInstance(
+            payload.evolutionInstance
+        );
+        if (existingByEvolutionInstance) {
+            res.status(409).json({
+                error: `Ja existe uma instancia com evolutionInstance '${payload.evolutionInstance}'.`,
+                code: "evolution_instance_conflict",
+            });
+            return;
+        }
+
         const webhookToken = payload.webhookToken || randomBytes(24).toString("hex");
 
         const saved = await upsertInstance({
@@ -576,13 +624,11 @@ router.post(
             qrData = persistedQr;
         }
 
-        if (!hasUsefulQrData(qrData)) {
-            try {
-                await evolutionClient.ping(2500);
-            } catch (error) {
-                evolutionReachable = false;
-                connectError = connectError || error;
-            }
+        try {
+            await evolutionClient.ping(2500);
+        } catch (error) {
+            evolutionReachable = false;
+            connectError = connectError || error;
         }
 
         if (!evolutionReachable && !hasUsefulQrData(qrData)) {
@@ -619,9 +665,12 @@ router.post(
             return;
         }
 
-        if (!hasUsefulQrData(qrData) && evolutionReachable) {
+        if (evolutionReachable) {
             try {
-                qrData = await evolutionClient.requestConnectionQr(instance.evolutionInstance);
+                const freshQrData = await evolutionClient.requestConnectionQr(instance.evolutionInstance);
+                if (hasUsefulQrData(freshQrData)) {
+                    qrData = freshQrData;
+                }
             } catch (error) {
                 connectError = error;
             }

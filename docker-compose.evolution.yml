@@ -136,6 +136,7 @@ services:
       WEBHOOK_EVENTS_QRCODE_UPDATED: "true"
       WEBHOOK_EVENTS_MESSAGES_UPSERT: "true"
       WEBHOOK_EVENTS_CONNECTION_UPDATE: "true"
+      QRCODE_COLOR: "#000000"
     dns:
       - 1.1.1.1
       - 8.8.8.8

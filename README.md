@@ -97,3 +97,10 @@ npm run tunnel:logs
 - `/api/*` (JWT)
 - `/webhooks/evolution`
 - `/webhooks/evolution/:instanceId`
+
+
+
+
+
+
+docker compose --env-file .env.production -f docker-compose.evolution.yml -f docker-compose.tunnel.yml up -d
