@@ -60,6 +60,22 @@ class EvolutionClient {
         return normalized;
     }
 
+    static classifyWebhookWarning(error) {
+        const details = Array.isArray(error?.details) ? error.details : [];
+        const has404 = details.some((item) => Number(item?.status) === 404);
+        const hasNetwork = details.some((item) => String(item?.status) === "network");
+
+        if (hasNetwork) {
+            return "webhook_config_unreachable";
+        }
+
+        if (has404) {
+            return "webhook_endpoint_unavailable";
+        }
+
+        return "webhook_config_failed";
+    }
+
     async runFallbackRequests(requests, actionName) {
         this.ensureConfigured();
         const failures = [];
@@ -148,45 +164,121 @@ class EvolutionClient {
             instanceName,
             token: webhookToken,
             qrcode: true,
+            integration: "WHATSAPP-BAILEYS",
             Integration: "WHATSAPP-BAILEYS",
             webhookUrl,
             webhookByEvents: false,
             webhookBase64: false,
             webhookEvents: ["MESSAGES_UPSERT", "CONNECTION_UPDATE", "QRCODE_UPDATED"],
         };
+        const warnings = [];
+        let createResult = null;
 
-        const createResult = await this.runFallbackRequests(
-            [
-                {
-                    method: "post",
-                    url: "/instance/create",
-                    data: createPayload,
-                },
-                {
-                    method: "post",
-                    url: `/instance/create/${safeInstance}`,
-                    data: createPayload,
-                },
-                {
-                    method: "post",
-                    url: "/instances",
-                    data: {
-                        name: instanceName,
-                        qrcode: true,
+        try {
+            createResult = await this.runFallbackRequests(
+                [
+                    {
+                        method: "post",
+                        url: "/instance/create",
+                        data: createPayload,
                     },
-                },
-            ],
-            "provisionInstance"
-        );
+                    {
+                        method: "post",
+                        url: `/instance/create/${safeInstance}`,
+                        data: createPayload,
+                    },
+                    {
+                        method: "post",
+                        url: "/instances",
+                        data: {
+                            name: instanceName,
+                            qrcode: true,
+                        },
+                    },
+                ],
+                "provisionInstance"
+            );
+        } catch (error) {
+            let recoveredSnapshot = null;
+            try {
+                recoveredSnapshot = await this.fetchInstanceSnapshot(instanceName);
+            } catch (snapshotError) {
+                recoveredSnapshot = null;
+            }
 
-        const webhookResult = webhookUrl
-            ? await this.configureWebhook(instanceName, webhookUrl, webhookToken)
-            : null;
+            if (!recoveredSnapshot) {
+                throw error;
+            }
+
+            createResult = {
+                recovered: true,
+                instanceName,
+                snapshot: recoveredSnapshot,
+            };
+            warnings.push({
+                code: "provision_recovered_existing_instance",
+                message:
+                    "A criacao retornou erro, mas a instancia ja existe na Evolution e foi reaproveitada.",
+            });
+        }
+
+        let webhookResult = null;
+
+        if (webhookUrl) {
+            try {
+                webhookResult = await this.configureWebhook(instanceName, webhookUrl, webhookToken);
+            } catch (error) {
+                warnings.push({
+                    code: EvolutionClient.classifyWebhookWarning(error),
+                    message: error.message,
+                    details: error?.details || null,
+                });
+            }
+        }
 
         return {
             createResult,
             webhookResult,
+            warnings,
         };
+    }
+
+    async ping(timeoutMs = 2500) {
+        this.ensureConfigured();
+        const failures = [];
+        const probes = ["/instance/fetchInstances", "/"];
+
+        for (const baseURL of this.baseUrls) {
+            const http = this.createHttpClient(baseURL);
+            for (const url of probes) {
+                try {
+                    const response = await http.request({
+                        method: "get",
+                        url,
+                        timeout: timeoutMs,
+                    });
+
+                    return {
+                        ok: true,
+                        baseURL,
+                        status: response.status,
+                        probe: url,
+                    };
+                } catch (error) {
+                    failures.push({
+                        baseURL,
+                        request: `GET ${url}`,
+                        status: error.response?.status || "network",
+                        message: error.response?.data?.message || error.message,
+                    });
+                }
+            }
+        }
+
+        const pingError = new Error("Evolution API indisponivel no momento.");
+        pingError.status = 503;
+        pingError.details = failures;
+        throw pingError;
     }
 
     async fetchConnectionState(instanceName) {
@@ -219,17 +311,39 @@ class EvolutionClient {
                     method: "get",
                     url: `/instance/connect/${safeInstance}`,
                 },
+            ],
+            "requestConnectionQr"
+        );
+    }
+
+    async fetchInstanceSnapshot(instanceName) {
+        const response = await this.runFallbackRequests(
+            [
                 {
-                    method: "post",
-                    url: `/instance/connect/${safeInstance}`,
-                    data: {},
+                    method: "get",
+                    url: "/instance/fetchInstances",
+                    params: { instanceName },
                 },
                 {
                     method: "get",
-                    url: `/instance/qrcode/${safeInstance}`,
+                    url: "/instance/fetchInstances",
                 },
             ],
-            "requestConnectionQr"
+            "fetchInstanceSnapshot"
+        );
+
+        const list = Array.isArray(response) ? response : [];
+        const normalizedName = String(instanceName || "").trim().toLowerCase();
+
+        return (
+            list.find((item) => {
+                const candidate =
+                    item?.instance?.instanceName ||
+                    item?.instanceName ||
+                    item?.name ||
+                    item?.instance?.name;
+                return String(candidate || "").trim().toLowerCase() === normalizedName;
+            }) || null
         );
     }
 

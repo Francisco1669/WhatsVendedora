@@ -1,6 +1,7 @@
 const env = require("./config/env");
 const app = require("./app");
 const logger = require("./lib/logger");
+const { createHash } = require("crypto");
 const {
     initializeDatabase,
     closeDatabase,
@@ -48,8 +49,22 @@ async function start() {
     await bootstrapOwnerFromEnv();
     startWebhookWorker(processEvolutionWebhookJob);
 
-    server = app.listen(env.PORT, () => {
-        logger.info({ port: env.PORT }, "Multi-instance WhatsApp manager running");
+    const evolutionKeyFingerprint = env.EVOLUTION_API_KEY
+        ? createHash("sha256").update(env.EVOLUTION_API_KEY).digest("hex").slice(0, 12)
+        : null;
+
+    logger.info(
+        {
+            evolutionApiUrl: env.EVOLUTION_API_URL || null,
+            evolutionKeyFingerprint,
+            webhookBaseUrl: env.PUBLIC_WEBHOOK_BASE_URL || null,
+            corsAllowedOrigins: env.CORS_ALLOWED_ORIGINS,
+        },
+        "Runtime integration snapshot"
+    );
+
+    server = app.listen(env.PORT, "0.0.0.0", () => {
+        logger.info({ port: env.PORT, host: "0.0.0.0" }, "Multi-instance WhatsApp manager running");
     });
 }
 

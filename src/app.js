@@ -76,7 +76,11 @@ app.use("/api", requireAuth, instancesRouter);
 app.use("/api", requireAuth, messagesRouter);
 
 app.use((error, req, res, next) => {
-    req.log.error({ err: error }, "Request failed");
+    if (req.log && typeof req.log.error === "function") {
+        req.log.error({ err: error }, "Request failed");
+    } else {
+        logger.error({ err: error }, "Request failed before request logger initialization");
+    }
 
     const status = error.status || 500;
     const responsePayload = {

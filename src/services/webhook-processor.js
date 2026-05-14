@@ -39,10 +39,15 @@ function extractIncomingToken(jobData) {
 }
 
 function assertWebhookAuthorized(jobData, instanceRecord) {
+    const payloadInstanceName = extractPayloadInstanceName(jobData.body);
+    const payloadApiKey = jobData.body?.apikey;
+
     const allowedTokens = [
         instanceRecord.webhookToken,
         env.EVOLUTION_GLOBAL_WEBHOOK_SECRET,
         env.EVOLUTION_API_KEY,
+        // Evolution v2.3.x pode enviar no webhook o token da propria instancia.
+        payloadInstanceName === instanceRecord.evolutionInstance ? payloadApiKey : null,
     ].filter(Boolean);
 
     if (allowedTokens.length === 0) {
@@ -55,6 +60,29 @@ function assertWebhookAuthorized(jobData, instanceRecord) {
         error.status = 401;
         throw error;
     }
+}
+
+function hasQrInPayload(payload) {
+    if (!payload || typeof payload !== "object") {
+        return false;
+    }
+
+    const candidates = [
+        payload?.qrcode,
+        payload?.qrCode,
+        payload?.qr,
+        payload?.base64,
+        payload?.code,
+        payload?.pairingCode,
+        payload?.data?.qrcode,
+        payload?.data?.qrCode,
+        payload?.data?.qr,
+        payload?.data?.base64,
+        payload?.data?.code,
+        payload?.data?.pairingCode,
+    ];
+
+    return candidates.some((value) => typeof value === "string" && value.trim().length > 0);
 }
 
 async function offloadMediaToS3(payload) {
@@ -136,7 +164,7 @@ async function processEvolutionWebhookJob(jobData) {
         await setInstanceStatus(instance.id, detectedStatus);
     }
 
-    if ((eventName || "").toUpperCase().includes("QRCODE")) {
+    if ((eventName || "").toUpperCase().includes("QRCODE") || hasQrInPayload(jobData.body)) {
         await setInstanceLatestQr(instance.id, jobData.body);
     }
 

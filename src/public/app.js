@@ -455,21 +455,28 @@ async function requestSellerQr(instanceId) {
             method: "POST",
         });
 
-        const qrPayload = payload?.data?.qrData ?? payload?.qrData ?? payload;
-        showQrCard(instanceId, qrPayload);
-        showToast("QR atualizado. Escaneie no celular da vendedora.");
+        const connectData = payload?.data || payload || {};
+        const qrPayload = connectData?.qrData ?? payload?.qrData ?? payload;
+        showQrCard(instanceId, qrPayload, connectData);
+        if (connectData?.pendingConnection) {
+            showToast(connectData.warning || "Conexao iniciada. Aguardando QR...", "info");
+        } else {
+            showToast("QR atualizado. Escaneie no celular da vendedora.");
+        }
     } catch (error) {
         handleApiError(error);
     }
 }
 
-function showQrCard(instanceId, qrPayload) {
+function showQrCard(instanceId, qrPayload, connectData = null) {
     const seller = getSellerById(instanceId);
     const label = seller?.sellerLabel || instanceId;
-    const qr = resolveQrDisplayData(qrPayload);
+    const qr = resolveQrDisplayData(qrPayload, connectData);
 
     dom.qrCardTitle.textContent = `Conectar ${label}`;
-    dom.qrCardMeta.textContent = `Instancia ${instanceId}: abra o WhatsApp da vendedora e escaneie o QR.`;
+    const connectState = connectData?.connectionState?.instance?.state || connectData?.connectionState?.state;
+    const stateSuffix = connectState ? ` Estado atual: ${connectState}.` : "";
+    dom.qrCardMeta.textContent = `Instancia ${instanceId}: abra o WhatsApp da vendedora e escaneie o QR.${stateSuffix}`;
 
     if (qr.imageSrc) {
         dom.qrImage.src = qr.imageSrc;
@@ -499,13 +506,27 @@ function hideQrCard() {
     dom.qrRaw.classList.add("hidden");
 }
 
-function resolveQrDisplayData(qrPayload) {
+function resolveQrDisplayData(qrPayload, connectData = null) {
+    const nonQrStates = new Set(["close", "connecting", "open", "connected", "disconnected"]);
+
     if (!qrPayload) {
+        if (connectData?.pendingConnection) {
+            return {
+                imageSrc: null,
+                rawText: getPendingReasonMessage(connectData),
+            };
+        }
         return { imageSrc: null, rawText: "" };
     }
 
     if (typeof qrPayload === "string") {
         const text = qrPayload.trim();
+        if (!text || nonQrStates.has(text.toLowerCase())) {
+            return {
+                imageSrc: null,
+                rawText: getPendingReasonMessage(connectData, text || "indefinido"),
+            };
+        }
         return {
             imageSrc: toQrImageSrc(text),
             rawText: text,
@@ -535,11 +556,20 @@ function resolveQrDisplayData(qrPayload) {
             qrPayload.data?.code,
             qrPayload.data?.pairingCode,
         ];
-        const stringCandidate = candidates.find((value) => typeof value === "string" && value.trim());
+        const stringCandidate = candidates.find((value) => {
+            if (typeof value !== "string") {
+                return false;
+            }
+            const normalized = value.trim().toLowerCase();
+            return normalized && !nonQrStates.has(normalized);
+        });
 
         return {
             imageSrc: toQrImageSrc(stringCandidate || ""),
-            rawText: JSON.stringify(qrPayload, null, 2),
+            rawText:
+                stringCandidate
+                    ? JSON.stringify(qrPayload, null, 2)
+                    : getPendingReasonMessage(connectData),
         };
     }
 
@@ -550,7 +580,37 @@ function resolveQrDisplayData(qrPayload) {
 }
 
 function getEvolutionManagerUrl() {
-    return `${window.location.protocol}//${window.location.hostname}:8080/manager`;
+    return `${window.location.protocol}//${window.location.host}/manager/`;
+}
+
+function getPendingReasonMessage(connectData, stateText = null) {
+    const reason = connectData?.pendingConnectionReason;
+    const managerUrl = getEvolutionManagerUrl();
+
+    if (reason === "evolution_unreachable") {
+        return `Evolution indisponivel no momento.\nAguarde alguns segundos e tente novamente.\nSe persistir, valide o container evolution-api e depois tente ${managerUrl}.`;
+    }
+
+    if (reason === "endpoint_404") {
+        return `A Evolution nao expoe endpoint de QR compativel para esta chamada.\nUse o manager em ${managerUrl} para a conexao inicial.`;
+    }
+
+    if (reason === "connecting_no_qr") {
+        return `Instancia em estado connecting${stateText ? ` (${stateText})` : ""}, ainda sem QR por HTTP.\nSe isso persistir, abra ${managerUrl} e conecte a instancia por la uma vez.`;
+    }
+
+    if (reason === "qr_endpoint_timeout") {
+        return `A Evolution esta em connecting, mas o endpoint de QR estourou timeout.\nIsso normalmente indica runtime travado na Evolution.\nAbra ${managerUrl} para forcar a conexao inicial.`;
+    }
+
+    if (reason === "qr_count_zero") {
+        return `A Evolution respondeu count=0 para o QR (sem code/base64).\nIsso indica QR nao gerado nesta sessao.\nAbra ${managerUrl} para forcar a conexao inicial.`;
+    }
+
+    return (
+        connectData?.warning ||
+        `A Evolution ainda nao devolveu o QR por HTTP.\nSe isso persistir, abra o manager em ${managerUrl} e conecte a instancia por la uma vez.`
+    );
 }
 
 function toQrImageSrc(value) {
@@ -666,7 +726,27 @@ async function onSellerFormSubmit(event) {
         await refreshDashboard({ preserveSelection: true });
 
         if (payload?.integration?.warnings?.length) {
-            showToast(`Cadastrada com avisos: ${payload.integration.warnings.join(" | ")}`, "error");
+            const warningText = payload.integration.warnings
+                .map((warning) => {
+                    if (typeof warning === "string") {
+                        return warning;
+                    }
+
+                    if (warning?.code && warning?.message) {
+                        return `${warning.code}: ${warning.message}`;
+                    }
+
+                    if (warning?.message) {
+                        return warning.message;
+                    }
+
+                    return JSON.stringify(warning);
+                })
+                .join(" | ");
+            showToast(
+                `Cadastrada com avisos nao bloqueantes: ${warningText}`,
+                "info"
+            );
         } else {
             showToast("Vendedora cadastrada com sucesso.");
         }

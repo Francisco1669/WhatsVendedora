@@ -51,12 +51,19 @@ function sanitizeInstance(instance, options = {}) {
 }
 
 function hasUsefulQrData(qrData) {
+    const nonQrStates = new Set(["close", "connecting", "open", "connected", "disconnected"]);
+
     if (!qrData) {
         return false;
     }
 
     if (typeof qrData === "string") {
-        return qrData.trim().length > 0;
+        const value = qrData.trim();
+        if (!value) {
+            return false;
+        }
+
+        return !nonQrStates.has(value.toLowerCase());
     }
 
     if (typeof qrData !== "object") {
@@ -78,7 +85,146 @@ function hasUsefulQrData(qrData) {
         qrData?.data?.pairingCode,
     ];
 
-    return candidates.some((value) => typeof value === "string" && value.trim().length > 0);
+    return candidates.some((value) => {
+        if (typeof value !== "string") {
+            return false;
+        }
+
+        const normalized = value.trim().toLowerCase();
+        return normalized.length > 0 && !nonQrStates.has(normalized);
+    });
+}
+
+function classifyProvisionWarning(error) {
+    const details = Array.isArray(error?.details) ? error.details : [];
+    const has404 = details.some((item) => Number(item?.status) === 404);
+    const hasNetwork = details.some((item) => String(item?.status) === "network");
+
+    if (hasNetwork) {
+        return "provision_evolution_unreachable";
+    }
+
+    if (has404) {
+        return "provision_endpoint_unavailable";
+    }
+
+    return "provision_failed";
+}
+
+function hasQrCountZero(qrData) {
+    if (!qrData || typeof qrData !== "object") {
+        return false;
+    }
+
+    return Number(qrData?.count) === 0;
+}
+
+function hasConnectEndpointTimeout(connectError) {
+    const details = Array.isArray(connectError?.details) ? connectError.details : [];
+    return details.some((item) => {
+        const request = String(item?.request || "").toUpperCase();
+        const message = String(item?.message || "").toLowerCase();
+        return request.includes("GET /INSTANCE/CONNECT/") && message.includes("timeout");
+    });
+}
+
+function extractQrPayloadFromAny(rawPayload) {
+    if (!rawPayload) {
+        return null;
+    }
+
+    if (hasUsefulQrData(rawPayload)) {
+        return rawPayload;
+    }
+
+    const candidates = [
+        rawPayload?.qrcode,
+        rawPayload?.qrCode,
+        rawPayload?.qr,
+        rawPayload?.base64,
+        rawPayload?.code,
+        rawPayload?.pairingCode,
+        rawPayload?.data?.qrcode,
+        rawPayload?.data?.qrCode,
+        rawPayload?.data?.qr,
+        rawPayload?.data?.base64,
+        rawPayload?.data?.code,
+        rawPayload?.data?.pairingCode,
+    ];
+
+    return candidates.find((item) => hasUsefulQrData(item)) || null;
+}
+
+function classifyPendingReason({
+    evolutionReachable,
+    qrData,
+    connectError,
+    connectionState,
+    snapshot,
+}) {
+    if (hasUsefulQrData(qrData)) {
+        return null;
+    }
+
+    if (!evolutionReachable) {
+        return "evolution_unreachable";
+    }
+
+    if (hasConnectEndpointTimeout(connectError)) {
+        return "qr_endpoint_timeout";
+    }
+
+    if (hasQrCountZero(qrData)) {
+        return "qr_count_zero";
+    }
+
+    const details = Array.isArray(connectError?.details) ? connectError.details : [];
+    if (details.some((item) => Number(item?.status) === 404)) {
+        return "endpoint_404";
+    }
+
+    const state =
+        String(
+            connectionState?.instance?.state ||
+                connectionState?.state ||
+                snapshot?.instance?.status ||
+                snapshot?.instance?.state ||
+                snapshot?.status ||
+                snapshot?.state ||
+                ""
+        )
+            .trim()
+            .toLowerCase() || null;
+
+    if (state === "connecting") {
+        return "connecting_no_qr";
+    }
+
+    return "qr_not_available";
+}
+
+function buildPendingWarning(reason) {
+    if (reason === "evolution_unreachable") {
+        return "Evolution indisponivel no momento. Aguarde alguns segundos e tente novamente.";
+    }
+
+    if (reason === "connecting_no_qr") {
+        return "Instancia em connecting, mas sem QR ainda. Tente novamente em alguns segundos.";
+    }
+
+    if (reason === "qr_endpoint_timeout") {
+        return "A Evolution esta conectando, mas o endpoint de QR estourou timeout.";
+    }
+
+    if (reason === "qr_count_zero") {
+        return "A Evolution respondeu count=0 para o QR. Isso indica sessao travada ou QR ainda nao gerado.";
+    }
+
+    if (reason === "endpoint_404") {
+        return "Evolution respondeu sem endpoint de QR compativel para este fluxo.";
+    }
+
+    return "QR ainda nao disponivel na Evolution. Tente novamente em alguns segundos.";
 }
 
 function wait(ms) {
@@ -226,18 +372,34 @@ router.post(
             provisioned: false,
             webhookUrl,
             warnings: [],
+            warningCodes: [],
         };
 
         if (shouldProvision) {
             try {
-                await evolutionClient.provisionInstance({
+                const provisionResult = await evolutionClient.provisionInstance({
                     instanceName: saved.evolutionInstance,
                     webhookUrl,
                     webhookToken,
                 });
                 integration.provisioned = true;
+                if (Array.isArray(provisionResult?.warnings)) {
+                    for (const warning of provisionResult.warnings) {
+                        const code = warning?.code || "provision_warning";
+                        integration.warningCodes.push(code);
+                        integration.warnings.push({
+                            code,
+                            message: warning?.message || "Aviso de provisionamento.",
+                        });
+                    }
+                }
             } catch (error) {
-                integration.warnings.push(error.message);
+                const code = classifyProvisionWarning(error);
+                integration.warningCodes.push(code);
+                integration.warnings.push({
+                    code,
+                    message: error.message,
+                });
             }
         }
 
@@ -403,24 +565,172 @@ router.post(
             return;
         }
 
-        let qrData = await evolutionClient.requestConnectionQr(instance.evolutionInstance);
+        let qrData = null;
+        let connectError = null;
+        let connectionState = null;
+        let snapshot = null;
+        let evolutionReachable = true;
+
+        const persistedQr = extractQrPayloadFromAny(instance.lastQrPayload);
+        if (hasUsefulQrData(persistedQr)) {
+            qrData = persistedQr;
+        }
 
         if (!hasUsefulQrData(qrData)) {
-            for (let attempt = 0; attempt < 6; attempt += 1) {
-                await wait(2000);
+            try {
+                await evolutionClient.ping(2500);
+            } catch (error) {
+                evolutionReachable = false;
+                connectError = connectError || error;
+            }
+        }
+
+        if (!evolutionReachable && !hasUsefulQrData(qrData)) {
+            const pendingConnectionReason = classifyPendingReason({
+                evolutionReachable,
+                qrData,
+                connectError,
+                connectionState,
+                snapshot,
+            });
+
+            res.json({
+                data: {
+                    instanceId: instance.id,
+                    originTag: `${instance.id}:${instance.phoneNumber}`,
+                    qrData: null,
+                    pendingConnection: true,
+                    pendingConnectionReason,
+                    warning: buildPendingWarning(pendingConnectionReason),
+                    connectErrorDetails: connectError?.details || null,
+                    connectionState: null,
+                    diagnostics: {
+                        snapshotState: null,
+                        evolutionReachable: false,
+                        endpointSummary: Array.isArray(connectError?.details)
+                            ? connectError.details.map((entry) => ({
+                                  request: entry.request || null,
+                                  status: entry.status || null,
+                              }))
+                            : null,
+                    },
+                },
+            });
+            return;
+        }
+
+        if (!hasUsefulQrData(qrData) && evolutionReachable) {
+            try {
+                qrData = await evolutionClient.requestConnectionQr(instance.evolutionInstance);
+            } catch (error) {
+                connectError = error;
+            }
+        }
+
+        if (!hasUsefulQrData(qrData) && evolutionReachable) {
+            for (let attempt = 0; attempt < 2; attempt += 1) {
+                await wait(1200);
+
+                try {
+                    const polledQrData = await Promise.race([
+                        evolutionClient.requestConnectionQr(instance.evolutionInstance),
+                        wait(3500).then(() => null),
+                    ]);
+                    if (hasUsefulQrData(polledQrData)) {
+                        qrData = polledQrData;
+                        break;
+                    }
+                } catch (error) {
+                    req.log?.warn?.(
+                        { err: error, evolutionInstance: instance.evolutionInstance, attempt: attempt + 1 },
+                        "Falha ao consultar QR em polling"
+                    );
+                }
+
                 const refreshedInstance = await getInstanceById(instance.id);
-                if (hasUsefulQrData(refreshedInstance?.lastQrPayload)) {
-                    qrData = refreshedInstance.lastQrPayload;
+                const refreshedQr = extractQrPayloadFromAny(refreshedInstance?.lastQrPayload);
+                if (hasUsefulQrData(refreshedQr)) {
+                    qrData = refreshedQr;
                     break;
                 }
             }
         }
+
+        if (!hasUsefulQrData(qrData) && evolutionClient.isConfigured() && evolutionReachable) {
+            try {
+                snapshot = await evolutionClient.fetchInstanceSnapshot(instance.evolutionInstance);
+                if (snapshot) {
+                    qrData =
+                        snapshot?.instance?.qrcode ||
+                        snapshot?.qrcode ||
+                        snapshot?.instance?.qrCode ||
+                        snapshot?.qrCode ||
+                        snapshot?.instance?.code ||
+                        snapshot?.code ||
+                        qrData;
+                } else if (connectError?.status === 404) {
+                    const webhookUrl = `${buildWebhookBaseUrl(req)}/webhooks/evolution/${instance.id}`;
+                    await evolutionClient.provisionInstance({
+                        instanceName: instance.evolutionInstance,
+                        webhookUrl,
+                        webhookToken: instance.webhookToken,
+                    });
+                    qrData = await evolutionClient.requestConnectionQr(instance.evolutionInstance);
+                }
+            } catch (error) {
+                req.log?.warn?.(
+                    { err: error, evolutionInstance: instance.evolutionInstance },
+                    "Falha ao consultar fetchInstances para QR fallback"
+                );
+            }
+        }
+
+        if (evolutionClient.isConfigured() && evolutionReachable) {
+            try {
+                connectionState = await evolutionClient.fetchConnectionState(instance.evolutionInstance);
+            } catch (error) {
+                connectionState = {
+                    error: "Nao foi possivel consultar estado de conexao na Evolution.",
+                    detail: error.message,
+                };
+            }
+        }
+
+        const pendingConnection = !hasUsefulQrData(qrData);
+        const connectErrorDetails = connectError?.details || null;
+        const pendingConnectionReason = classifyPendingReason({
+            evolutionReachable,
+            qrData,
+            connectError,
+            connectionState,
+            snapshot,
+        });
 
         res.json({
             data: {
                 instanceId: instance.id,
                 originTag: `${instance.id}:${instance.phoneNumber}`,
                 qrData,
+                pendingConnection,
+                pendingConnectionReason: pendingConnection ? pendingConnectionReason : null,
+                warning: pendingConnection ? buildPendingWarning(pendingConnectionReason) : undefined,
+                connectErrorDetails,
+                connectionState,
+                diagnostics: {
+                    snapshotState:
+                        snapshot?.instance?.status ||
+                        snapshot?.instance?.state ||
+                        snapshot?.status ||
+                        snapshot?.state ||
+                        null,
+                    evolutionReachable,
+                    endpointSummary: Array.isArray(connectErrorDetails)
+                        ? connectErrorDetails.map((entry) => ({
+                              request: entry.request || null,
+                              status: entry.status || null,
+                          }))
+                        : null,
+                },
             },
         });
     })

@@ -1,9 +1,22 @@
-{
-    email {$ACME_EMAIL}
-}
-
-{$PUBLIC_DOMAIN} {
+:80 {
     encode gzip zstd
+
+    handle /assets/* {
+        reverse_proxy evolution-api:8080
+    }
+
+    redir /manager /manager/ 308
+    redir /evolution-manager /manager/ 308
+    redir /evolution-manager/ /manager/ 308
+
+    handle /manager/* {
+        reverse_proxy evolution-api:8080
+    }
+
+    redir /evoapi /evoapi/ 308
+    handle_path /evoapi/* {
+        reverse_proxy evolution-api:8080
+    }
 
     @webhook path /webhooks/evolution*
     request_body @webhook {
