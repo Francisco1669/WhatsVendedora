@@ -575,9 +575,25 @@ body {
     min-height: 0;
     flex: 1;
   }
-  .top-nav { position: sticky; top: 0; z-index: 10; }
+  .top-nav {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    padding: 0 10px;
+    gap: 8px;
+  }
   .brand-logo-nav { width: 40px; height: 40px; }
-  .nav-brand { font-size: 0.9rem; }
+  .nav-brand {
+    font-size: 0.86rem;
+    min-width: 0;
+  }
+  .nav-actions {
+    gap: 6px;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  .user-pill { display: none; }
+  .btn-small { padding: 4px 7px; font-size: 0.72rem; }
   .resizer { display: none; }
   .panel {
     border: none;
