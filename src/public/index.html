@@ -7,7 +7,7 @@
   
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="./styles.css" />
   
   <!-- Phosphor Icons for easy UI icons -->
@@ -17,33 +17,46 @@
 
   <!-- Login Screen -->
   <section id="loginView" class="login-view hidden">
-    <div class="login-card">
-      <div class="login-header">
-        <img src="./assets/mundo_variedade_logo.png" alt="Mundo da Variedade" class="brand-logo-login" />
-        <h1>Painel Gerencial</h1>
-        <p class="muted">Acesso restrito a supervisão.</p>
+    <div class="login-shell">
+      <aside class="login-hero">
+        <span class="hero-pill">Central de Operacoes</span>
+        <h2>Gestao inteligente de conversas em tempo real.</h2>
+        <p>Acompanhe performance das vendedoras, sincronize historicos e mantenha seu atendimento sob controle.</p>
+        <ul class="hero-highlights">
+          <li><i class="ph ph-chart-line-up"></i> Visao consolidada de leads e origem.</li>
+          <li><i class="ph ph-chats-circle"></i> Conversas organizadas por contato e periodo.</li>
+          <li><i class="ph ph-shield-check"></i> Acesso seguro para equipe de supervisao.</li>
+        </ul>
+      </aside>
+
+      <div class="login-card">
+        <div class="login-header">
+          <img src="./assets/mundo_variedade_logo.png" alt="Mundo da Variedade" class="brand-logo-login" />
+          <h1>Painel Gerencial</h1>
+          <p class="muted">Acesso restrito a supervisao.</p>
+        </div>
+
+        <form id="loginForm" class="stack gap-md">
+          <div class="input-group">
+            <label for="emailInput">E-mail</label>
+            <div class="input-icon-wrapper">
+              <i class="ph ph-envelope-simple"></i>
+              <input id="emailInput" name="email" type="email" autocomplete="email" required placeholder="dona@loja.com.br" />
+            </div>
+          </div>
+
+          <div class="input-group">
+            <label for="passwordInput">Senha</label>
+            <div class="input-icon-wrapper">
+              <i class="ph ph-lock-key"></i>
+              <input id="passwordInput" name="password" type="password" autocomplete="current-password" required placeholder="********" />
+            </div>
+          </div>
+
+          <button id="loginButton" type="submit" class="btn btn-primary btn-block">Acessar</button>
+          <p id="loginError" class="flash-alert flash-error hidden" role="alert"></p>
+        </form>
       </div>
-
-      <form id="loginForm" class="stack gap-md">
-        <div class="input-group">
-          <label for="emailInput">E-mail</label>
-          <div class="input-icon-wrapper">
-            <i class="ph ph-envelope-simple"></i>
-            <input id="emailInput" name="email" type="email" autocomplete="email" required placeholder="dona@loja.com.br" />
-          </div>
-        </div>
-
-        <div class="input-group">
-          <label for="passwordInput">Senha</label>
-          <div class="input-icon-wrapper">
-            <i class="ph ph-lock-key"></i>
-            <input id="passwordInput" name="password" type="password" autocomplete="current-password" required placeholder="••••••••" />
-          </div>
-        </div>
-
-        <button id="loginButton" type="submit" class="btn btn-primary btn-block">Acessar</button>
-        <p id="loginError" class="flash-alert flash-error hidden" role="alert"></p>
-      </form>
     </div>
   </section>
 
@@ -227,3 +240,4 @@
   <script src="./app.js"></script>
 </body>
 </html>
+
