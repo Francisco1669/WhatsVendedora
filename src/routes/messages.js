@@ -11,6 +11,10 @@ const { messageQuerySchema, auditQuerySchema } = require("../validation/schemas"
 
 const router = express.Router();
 
+function currentTenantId(req) {
+    return req.auth?.user?.tenantId || "tenant_default";
+}
+
 router.get(
     "/messages",
     asyncHandler(async (req, res) => {
@@ -19,6 +23,7 @@ router.get(
         const offset = parsedQuery.offset || 0;
 
         const data = await listInboundMessages({
+            tenantId: currentTenantId(req),
             instanceId: parsedQuery.instanceId,
             originTag: parsedQuery.originTag,
             receivedAfter: parsedQuery.receivedAfter,
@@ -43,7 +48,7 @@ router.get(
 router.get(
     "/seller-summary",
     asyncHandler(async (req, res) => {
-        const data = await listSellerSummaries();
+        const data = await listSellerSummaries({ tenantId: currentTenantId(req) });
         res.json({
             totalSellers: data.length,
             data,
@@ -54,7 +59,7 @@ router.get(
 router.get(
     "/messages/origins",
     asyncHandler(async (req, res) => {
-        const data = await listOrigins();
+        const data = await listOrigins({ tenantId: currentTenantId(req) });
         res.json({
             totalOrigins: data.length,
             data,
@@ -70,6 +75,7 @@ router.get(
         const offset = parsedQuery.offset || 0;
 
         const data = await listAdminAudits({
+            tenantId: currentTenantId(req),
             adminUserId: parsedQuery.adminUserId,
             instanceId: parsedQuery.instanceId,
             limit,

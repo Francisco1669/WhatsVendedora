@@ -1,5 +1,6 @@
 const { Pool } = require("pg");
 const env = require("../config/env");
+const { assertTenantScope, normalizeTenantId } = require("../services/tenant-scope");
 
 const state = {
   pool: null,
@@ -13,6 +14,20 @@ function quoteIdentifier(value) {
 
 function tableName(table) {
   return `"${quoteIdentifier(env.POSTGRES_SCHEMA)}"."${quoteIdentifier(table)}"`;
+}
+
+function ensureTenantInFilters(filters = {}, { required = true } = {}) {
+  const tenantId = normalizeTenantId(filters.tenantId);
+  if (required) {
+    if (tenantId) {
+      return assertTenantScope(tenantId);
+    }
+    if (env.MULTI_TENANT_ENFORCED) {
+      return assertTenantScope(null);
+    }
+    return "tenant_default";
+  }
+  return tenantId;
 }
 
 function createPool() {
@@ -399,8 +414,18 @@ async function initializeDatabase() {
     const pool = createPool();
     await pool.query(`CREATE SCHEMA IF NOT EXISTS "${quoteIdentifier(env.POSTGRES_SCHEMA)}"`);
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS ${tableName("tenants")} (
+        id TEXT PRIMARY KEY,
+        slug TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+
       CREATE TABLE IF NOT EXISTS ${tableName("instances")} (
         id TEXT PRIMARY KEY,
+        tenant_id TEXT,
         label TEXT NOT NULL,
         phone_number TEXT NOT NULL,
         evolution_instance TEXT NOT NULL UNIQUE,
@@ -415,6 +440,7 @@ async function initializeDatabase() {
 
       CREATE TABLE IF NOT EXISTS ${tableName("inbound_messages")} (
         id BIGSERIAL PRIMARY KEY,
+        tenant_id TEXT,
         evolution_message_id TEXT NOT NULL,
         instance_id TEXT NOT NULL REFERENCES ${tableName("instances")}(id) ON DELETE CASCADE,
         origin_tag TEXT NOT NULL,
@@ -433,6 +459,7 @@ async function initializeDatabase() {
 
       CREATE TABLE IF NOT EXISTS ${tableName("outbound_messages")} (
         id BIGSERIAL PRIMARY KEY,
+        tenant_id TEXT,
         instance_id TEXT NOT NULL REFERENCES ${tableName("instances")}(id) ON DELETE CASCADE,
         origin_tag TEXT NOT NULL,
         to_jid TEXT NOT NULL,
@@ -447,6 +474,7 @@ async function initializeDatabase() {
 
       CREATE TABLE IF NOT EXISTS ${tableName("admin_users")} (
         id BIGSERIAL PRIMARY KEY,
+        tenant_id TEXT,
         name TEXT NOT NULL,
         email TEXT NOT NULL UNIQUE,
         password_hash TEXT NOT NULL,
@@ -458,6 +486,7 @@ async function initializeDatabase() {
 
       CREATE TABLE IF NOT EXISTS ${tableName("admin_audit_logs")} (
         id BIGSERIAL PRIMARY KEY,
+        tenant_id TEXT,
         admin_user_id BIGINT REFERENCES ${tableName("admin_users")}(id) ON DELETE SET NULL,
         action TEXT NOT NULL,
         instance_id TEXT REFERENCES ${tableName("instances")}(id) ON DELETE SET NULL,
@@ -466,13 +495,90 @@ async function initializeDatabase() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
 
-      CREATE INDEX IF NOT EXISTS idx_wv_instances_phone ON ${tableName("instances")}(phone_number);
+      INSERT INTO ${tableName("tenants")} (id, slug, name, active)
+      VALUES ('tenant_default', '${String(env.AUTH_DEFAULT_TENANT_SLUG || "tenant_default").replace(/'/g, "''")}', 'Tenant Default', TRUE)
+      ON CONFLICT (id) DO UPDATE SET
+        slug = EXCLUDED.slug,
+        updated_at = CURRENT_TIMESTAMP;
+
+      ALTER TABLE ${tableName("instances")} ADD COLUMN IF NOT EXISTS tenant_id TEXT;
+      ALTER TABLE ${tableName("inbound_messages")} ADD COLUMN IF NOT EXISTS tenant_id TEXT;
+      ALTER TABLE ${tableName("outbound_messages")} ADD COLUMN IF NOT EXISTS tenant_id TEXT;
+      ALTER TABLE ${tableName("admin_users")} ADD COLUMN IF NOT EXISTS tenant_id TEXT;
+      ALTER TABLE ${tableName("admin_audit_logs")} ADD COLUMN IF NOT EXISTS tenant_id TEXT;
+
+      UPDATE ${tableName("instances")} SET tenant_id = 'tenant_default' WHERE tenant_id IS NULL;
+      UPDATE ${tableName("inbound_messages")} m
+      SET tenant_id = i.tenant_id
+      FROM ${tableName("instances")} i
+      WHERE m.instance_id = i.id AND m.tenant_id IS NULL;
+      UPDATE ${tableName("outbound_messages")} m
+      SET tenant_id = i.tenant_id
+      FROM ${tableName("instances")} i
+      WHERE m.instance_id = i.id AND m.tenant_id IS NULL;
+      UPDATE ${tableName("admin_users")} SET tenant_id = 'tenant_default' WHERE tenant_id IS NULL;
+      UPDATE ${tableName("admin_audit_logs")} a
+      SET tenant_id = COALESCE(i.tenant_id, 'tenant_default')
+      FROM ${tableName("instances")} i
+      WHERE a.instance_id = i.id AND a.tenant_id IS NULL;
+      UPDATE ${tableName("admin_audit_logs")} SET tenant_id = 'tenant_default' WHERE tenant_id IS NULL;
+
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conname = 'instances_evolution_instance_key'
+            AND conrelid = '${tableName("instances")}'::regclass
+        ) THEN
+          ALTER TABLE ${tableName("instances")} DROP CONSTRAINT instances_evolution_instance_key;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_instances_tenant') THEN
+          ALTER TABLE ${tableName("instances")}
+          ADD CONSTRAINT fk_instances_tenant FOREIGN KEY (tenant_id) REFERENCES ${tableName("tenants")}(id) ON DELETE RESTRICT;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_inbound_messages_tenant') THEN
+          ALTER TABLE ${tableName("inbound_messages")}
+          ADD CONSTRAINT fk_inbound_messages_tenant FOREIGN KEY (tenant_id) REFERENCES ${tableName("tenants")}(id) ON DELETE RESTRICT;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_outbound_messages_tenant') THEN
+          ALTER TABLE ${tableName("outbound_messages")}
+          ADD CONSTRAINT fk_outbound_messages_tenant FOREIGN KEY (tenant_id) REFERENCES ${tableName("tenants")}(id) ON DELETE RESTRICT;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_admin_users_tenant') THEN
+          ALTER TABLE ${tableName("admin_users")}
+          ADD CONSTRAINT fk_admin_users_tenant FOREIGN KEY (tenant_id) REFERENCES ${tableName("tenants")}(id) ON DELETE RESTRICT;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_admin_audit_logs_tenant') THEN
+          ALTER TABLE ${tableName("admin_audit_logs")}
+          ADD CONSTRAINT fk_admin_audit_logs_tenant FOREIGN KEY (tenant_id) REFERENCES ${tableName("tenants")}(id) ON DELETE RESTRICT;
+        END IF;
+      END $$;
+
+      DO $$
+      BEGIN
+        IF ${env.MULTI_TENANT_ENFORCED ? "TRUE" : "FALSE"} THEN
+          ALTER TABLE ${tableName("instances")} ALTER COLUMN tenant_id SET NOT NULL;
+          ALTER TABLE ${tableName("inbound_messages")} ALTER COLUMN tenant_id SET NOT NULL;
+          ALTER TABLE ${tableName("outbound_messages")} ALTER COLUMN tenant_id SET NOT NULL;
+          ALTER TABLE ${tableName("admin_users")} ALTER COLUMN tenant_id SET NOT NULL;
+          ALTER TABLE ${tableName("admin_audit_logs")} ALTER COLUMN tenant_id SET NOT NULL;
+        END IF;
+      END $$;
+
+      CREATE INDEX IF NOT EXISTS idx_wv_instances_tenant_phone ON ${tableName("instances")}(tenant_id, phone_number);
+      CREATE INDEX IF NOT EXISTS idx_wv_instances_tenant_id ON ${tableName("instances")}(tenant_id, id);
       CREATE INDEX IF NOT EXISTS idx_wv_messages_instance ON ${tableName("inbound_messages")}(instance_id, received_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_wv_messages_tenant_instance ON ${tableName("inbound_messages")}(tenant_id, instance_id, received_at DESC);
       CREATE INDEX IF NOT EXISTS idx_wv_messages_origin ON ${tableName("inbound_messages")}(origin_tag, received_at DESC);
       CREATE INDEX IF NOT EXISTS idx_wv_messages_received_at ON ${tableName("inbound_messages")}(received_at);
-      CREATE INDEX IF NOT EXISTS idx_wv_admin_users_email ON ${tableName("admin_users")}(email);
+      CREATE INDEX IF NOT EXISTS idx_wv_admin_users_tenant_email ON ${tableName("admin_users")}(tenant_id, email);
       CREATE INDEX IF NOT EXISTS idx_wv_admin_audit_logs_user ON ${tableName("admin_audit_logs")}(admin_user_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_wv_admin_audit_logs_instance ON ${tableName("admin_audit_logs")}(instance_id, created_at DESC);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_wv_admin_users_tenant_email_unique
+      ON ${tableName("admin_users")}(tenant_id, email);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_wv_instances_tenant_evolution_unique
+      ON ${tableName("instances")}(tenant_id, evolution_instance);
     `);
 
     state.initialized = true;
@@ -487,19 +593,117 @@ async function query(text, values = []) {
   return state.pool.query(text, values);
 }
 
+async function getTenantBySlug(slug) {
+  const normalizedSlug = String(slug || "")
+    .trim()
+    .toLowerCase();
+  if (!normalizedSlug) {
+    return null;
+  }
+
+  const result = await query(
+    `
+      SELECT
+        id,
+        slug,
+        name,
+        active,
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
+      FROM ${tableName("tenants")}
+      WHERE slug = $1
+    `,
+    [normalizedSlug]
+  );
+
+  const row = result.rows[0];
+  return row ? { ...row, active: Boolean(row.active) } : null;
+}
+
+async function listTenants() {
+  const result = await query(
+    `
+      SELECT
+        id,
+        slug,
+        name,
+        active,
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
+      FROM ${tableName("tenants")}
+      ORDER BY created_at ASC, id ASC
+    `
+  );
+
+  return result.rows.map((row) => ({
+    ...row,
+    active: Boolean(row.active),
+  }));
+}
+
+async function upsertTenant(tenantData) {
+  const normalizedSlug = String(tenantData.slug || "")
+    .trim()
+    .toLowerCase();
+  if (!normalizedSlug) {
+    throw new Error("slug do tenant e obrigatorio.");
+  }
+
+  const normalizedId =
+    String(tenantData.id || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, "_")
+      .replace(/_+/g, "_")
+      .replace(/^_+|_+$/g, "") || normalizedSlug.replace(/-/g, "_");
+
+  const result = await query(
+    `
+      INSERT INTO ${tableName("tenants")} (
+        id,
+        slug,
+        name,
+        active
+      ) VALUES ($1, $2, $3, $4)
+      ON CONFLICT (id) DO UPDATE SET
+        slug = EXCLUDED.slug,
+        name = EXCLUDED.name,
+        active = EXCLUDED.active,
+        updated_at = CURRENT_TIMESTAMP
+      RETURNING
+        id,
+        slug,
+        name,
+        active,
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
+    `,
+    [normalizedId, normalizedSlug, String(tenantData.name || "").trim() || normalizedSlug, tenantData.active !== false]
+  );
+
+  const row = result.rows[0];
+  return {
+    ...row,
+    active: Boolean(row.active),
+  };
+}
+
 async function upsertInstance(instanceData) {
+  const tenantId = ensureTenantInFilters(instanceData);
   const result = await query(
     `
       INSERT INTO ${tableName("instances")} (
         id,
+        tenant_id,
         label,
         phone_number,
         evolution_instance,
         webhook_token,
         active,
         status
-      ) VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, 'unknown'))
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, 'unknown'))
       ON CONFLICT(id) DO UPDATE SET
+        tenant_id = EXCLUDED.tenant_id,
         label = EXCLUDED.label,
         phone_number = EXCLUDED.phone_number,
         evolution_instance = EXCLUDED.evolution_instance,
@@ -509,6 +713,7 @@ async function upsertInstance(instanceData) {
         updated_at = CURRENT_TIMESTAMP
       RETURNING
         id,
+        tenant_id AS "tenantId",
         label,
         phone_number AS "phoneNumber",
         evolution_instance AS "evolutionInstance",
@@ -522,6 +727,7 @@ async function upsertInstance(instanceData) {
     `,
     [
       instanceData.id,
+      tenantId,
       instanceData.label,
       instanceData.phoneNumber,
       instanceData.evolutionInstance,
@@ -534,11 +740,17 @@ async function upsertInstance(instanceData) {
   return mapInstanceRow(result.rows[0]);
 }
 
-async function getInstanceById(instanceId) {
+async function getInstanceById(instanceId, tenantId = null) {
+  const scopedTenantId = tenantId ? assertTenantScope(tenantId) : null;
+  const values = [instanceId];
+  const tenantClause = scopedTenantId
+    ? ` AND tenant_id = $${values.push(scopedTenantId)}`
+    : "";
   const result = await query(
     `
       SELECT
         id,
+        tenant_id AS "tenantId",
         label,
         phone_number AS "phoneNumber",
         evolution_instance AS "evolutionInstance",
@@ -550,19 +762,25 @@ async function getInstanceById(instanceId) {
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       FROM ${tableName("instances")}
-      WHERE id = $1
+      WHERE id = $1${tenantClause}
     `,
-    [instanceId]
+    values
   );
 
   return mapInstanceRow(result.rows[0]);
 }
 
-async function getInstanceByEvolutionInstance(evolutionInstance) {
+async function getInstanceByEvolutionInstance(evolutionInstance, tenantId = null) {
+  const scopedTenantId = tenantId ? assertTenantScope(tenantId) : null;
+  const values = [evolutionInstance];
+  const tenantClause = scopedTenantId
+    ? ` AND tenant_id = $${values.push(scopedTenantId)}`
+    : "";
   const result = await query(
     `
       SELECT
         id,
+        tenant_id AS "tenantId",
         label,
         phone_number AS "phoneNumber",
         evolution_instance AS "evolutionInstance",
@@ -574,19 +792,23 @@ async function getInstanceByEvolutionInstance(evolutionInstance) {
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       FROM ${tableName("instances")}
-      WHERE evolution_instance = $1
+      WHERE evolution_instance = $1${tenantClause}
     `,
-    [evolutionInstance]
+    values
   );
 
   return mapInstanceRow(result.rows[0]);
 }
 
-async function listInstances() {
+async function listInstances(filters = {}) {
+  const tenantId = ensureTenantInFilters(filters, { required: false });
+  const values = [];
+  const where = tenantId ? `WHERE tenant_id = $${values.push(tenantId)}` : "";
   const result = await query(
     `
       SELECT
         id,
+        tenant_id AS "tenantId",
         label,
         phone_number AS "phoneNumber",
         evolution_instance AS "evolutionInstance",
@@ -598,39 +820,49 @@ async function listInstances() {
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       FROM ${tableName("instances")}
+      ${where}
       ORDER BY created_at ASC
-    `
+    `,
+    values
   );
 
   return result.rows.map(mapInstanceRow);
 }
 
-async function setInstanceStatus(instanceId, status) {
+async function setInstanceStatus(instanceId, status, tenantId = null) {
+  const scopedTenantId = tenantId ? assertTenantScope(tenantId) : null;
+  const values = [status, instanceId];
+  const tenantClause = scopedTenantId ? ` AND tenant_id = $${values.push(scopedTenantId)}` : "";
   await query(
     `
       UPDATE ${tableName("instances")}
       SET status = $1, updated_at = CURRENT_TIMESTAMP
-      WHERE id = $2
+      WHERE id = $2${tenantClause}
     `,
-    [status, instanceId]
+    values
   );
 }
 
-async function setInstanceLatestQr(instanceId, qrPayload) {
+async function setInstanceLatestQr(instanceId, qrPayload, tenantId = null) {
+  const scopedTenantId = tenantId ? assertTenantScope(tenantId) : null;
+  const values = [JSON.stringify(qrPayload || {}), instanceId];
+  const tenantClause = scopedTenantId ? ` AND tenant_id = $${values.push(scopedTenantId)}` : "";
   await query(
     `
       UPDATE ${tableName("instances")}
       SET last_qr_payload = $1::jsonb, last_qr_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-      WHERE id = $2
+      WHERE id = $2${tenantClause}
     `,
-    [JSON.stringify(qrPayload || {}), instanceId]
+    values
   );
 }
 
 async function saveInboundMessage(messageData) {
+  const tenantId = ensureTenantInFilters(messageData);
   const result = await query(
     `
       INSERT INTO ${tableName("inbound_messages")} (
+        tenant_id,
         evolution_message_id,
         instance_id,
         origin_tag,
@@ -643,11 +875,12 @@ async function saveInboundMessage(messageData) {
         message_type,
         text_body,
         raw_payload
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)
       ON CONFLICT(evolution_message_id, instance_id) DO NOTHING
       RETURNING id
     `,
     [
+      tenantId,
       messageData.evolutionMessageId,
       messageData.instanceId,
       messageData.originTag,
@@ -670,9 +903,11 @@ async function saveInboundMessage(messageData) {
 }
 
 async function saveOutboundMessage(outboundData) {
+  const tenantId = ensureTenantInFilters(outboundData);
   const result = await query(
     `
       INSERT INTO ${tableName("outbound_messages")} (
+        tenant_id,
         instance_id,
         origin_tag,
         to_jid,
@@ -682,10 +917,11 @@ async function saveOutboundMessage(outboundData) {
         sent_by_user_name,
         sent_by_user_role,
         request_id
-      ) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)
+      ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10)
       RETURNING id
     `,
     [
+      tenantId,
       outboundData.instanceId,
       outboundData.originTag,
       outboundData.toJid,
@@ -721,8 +957,10 @@ function selectInboundColumns() {
 }
 
 async function listInboundMessages(filters) {
+  const tenantId = ensureTenantInFilters(filters);
   const clauses = [];
-  const values = [];
+  const values = [tenantId];
+  clauses.push(`tenant_id = $1`);
 
   if (filters.instanceId) {
     values.push(filters.instanceId);
@@ -730,7 +968,7 @@ async function listInboundMessages(filters) {
   }
 
   if (filters.conversationId) {
-    const conversationAliases = await resolveConversationAliases(filters.instanceId, filters.conversationId);
+    const conversationAliases = await resolveConversationAliases(filters.instanceId, filters.conversationId, tenantId);
     values.push(conversationAliases);
     clauses.push(`(
       chat_jid = ANY($${values.length}) OR
@@ -775,7 +1013,7 @@ async function listInboundMessages(filters) {
   );
 }
 
-async function resolveConversationAliases(instanceId, conversationId) {
+async function resolveConversationAliases(instanceId, conversationId, tenantId) {
   const normalizedConversationId = normalizeJidValue(conversationId);
   if (!normalizedConversationId) {
     return ["unknown"];
@@ -785,7 +1023,8 @@ async function resolveConversationAliases(instanceId, conversationId) {
   const targetPhone = normalizePhoneValue(normalizedConversationId);
 
   const clauses = [];
-  const values = [];
+  const values = [assertTenantScope(tenantId)];
+  clauses.push(`tenant_id = $1`);
   if (instanceId) {
     values.push(instanceId);
     clauses.push(`instance_id = $${values.length}`);
@@ -835,8 +1074,9 @@ async function resolveConversationAliases(instanceId, conversationId) {
 }
 
 async function listInstanceConversations(filters) {
-  const clauses = ["instance_id = $1"];
-  const values = [filters.instanceId];
+  const tenantId = ensureTenantInFilters(filters);
+  const clauses = ["tenant_id = $1", "instance_id = $2"];
+  const values = [tenantId, filters.instanceId];
 
   if (filters.receivedAfter) {
     values.push(filters.receivedAfter);
@@ -910,7 +1150,8 @@ async function listInstanceConversations(filters) {
   return Array.from(grouped.values());
 }
 
-async function listOrigins() {
+async function listOrigins(filters = {}) {
+  const tenantId = ensureTenantInFilters(filters);
   const result = await query(
     `
       SELECT
@@ -922,19 +1163,24 @@ async function listOrigins() {
         MAX(m.received_at) AS "lastMessageAt"
       FROM ${tableName("inbound_messages")} m
       LEFT JOIN ${tableName("instances")} i ON i.id = m.instance_id
+      WHERE m.tenant_id = $1
       GROUP BY m.origin_tag, m.instance_id, i.label, m.origin_phone
       ORDER BY "lastMessageAt" DESC
-    `
+    `,
+    [tenantId]
   );
 
   return result.rows;
 }
 
-async function getAdminUserByEmail(email) {
+async function getAdminUserByEmail(email, tenantId) {
+  const scopedTenantId = ensureTenantInFilters({ tenantId });
   const result = await query(
     `
       SELECT
         id,
+        tenant_id AS "tenantId",
+        t.slug AS "tenantSlug",
         name,
         email,
         password_hash AS "passwordHash",
@@ -942,10 +1188,11 @@ async function getAdminUserByEmail(email) {
         active,
         created_at AS "createdAt",
         updated_at AS "updatedAt"
-      FROM ${tableName("admin_users")}
-      WHERE email = $1
+      FROM ${tableName("admin_users")} u
+      LEFT JOIN ${tableName("tenants")} t ON t.id = u.tenant_id
+      WHERE u.email = $1 AND u.tenant_id = $2
     `,
-    [(email || "").toLowerCase()]
+    [(email || "").toLowerCase(), scopedTenantId]
   );
 
   return result.rows[0] || null;
@@ -955,15 +1202,18 @@ async function getAdminUserById(userId) {
   const result = await query(
     `
       SELECT
-        id,
-        name,
-        email,
-        role,
-        active,
-        created_at AS "createdAt",
-        updated_at AS "updatedAt"
-      FROM ${tableName("admin_users")}
-      WHERE id = $1
+        u.id,
+        u.tenant_id AS "tenantId",
+        t.slug AS "tenantSlug",
+        u.name,
+        u.email,
+        u.role,
+        u.active,
+        u.created_at AS "createdAt",
+        u.updated_at AS "updatedAt"
+      FROM ${tableName("admin_users")} u
+      LEFT JOIN ${tableName("tenants")} t ON t.id = u.tenant_id
+      WHERE u.id = $1
     `,
     [userId]
   );
@@ -971,24 +1221,28 @@ async function getAdminUserById(userId) {
   return result.rows[0] || null;
 }
 
-async function countAdminUsers() {
-  const result = await query(`SELECT COUNT(*)::int AS total FROM ${tableName("admin_users")}`);
+async function countAdminUsers(filters = {}) {
+  const tenantId = ensureTenantInFilters(filters);
+  const result = await query(`SELECT COUNT(*)::int AS total FROM ${tableName("admin_users")} WHERE tenant_id = $1`, [tenantId]);
   return Number(result.rows[0]?.total || 0);
 }
 
 async function createAdminUser(userData) {
+  const tenantId = ensureTenantInFilters(userData);
   const result = await query(
     `
       INSERT INTO ${tableName("admin_users")} (
+        tenant_id,
         name,
         email,
         password_hash,
         role,
         active
-      ) VALUES ($1, $2, $3, COALESCE($4, 'owner'), $5)
+      ) VALUES ($1, $2, $3, $4, COALESCE($5, 'owner'), $6)
       RETURNING id
     `,
     [
+      tenantId,
       userData.name,
       userData.email.toLowerCase(),
       userData.passwordHash,
@@ -1009,7 +1263,8 @@ async function bootstrapOwnerUser(userData) {
     };
   }
 
-  const existingByEmail = await getAdminUserByEmail(userData.email);
+  const tenantId = ensureTenantInFilters(userData);
+  const existingByEmail = await getAdminUserByEmail(userData.email, tenantId);
   if (existingByEmail) {
     return {
       created: false,
@@ -1018,7 +1273,7 @@ async function bootstrapOwnerUser(userData) {
     };
   }
 
-  if ((await countAdminUsers()) > 0) {
+  if ((await countAdminUsers({ tenantId })) > 0) {
     return {
       created: false,
       reason: "owner_already_bootstrapped",
@@ -1027,6 +1282,7 @@ async function bootstrapOwnerUser(userData) {
   }
 
   const createdUser = await createAdminUser({
+    tenantId,
     name: userData.name,
     email: userData.email,
     passwordHash: userData.passwordHash,
@@ -1042,18 +1298,21 @@ async function bootstrapOwnerUser(userData) {
 }
 
 async function recordAdminAudit(auditData) {
+  const tenantId = ensureTenantInFilters(auditData);
   const result = await query(
     `
       INSERT INTO ${tableName("admin_audit_logs")} (
+        tenant_id,
         admin_user_id,
         action,
         instance_id,
         target_jid,
         metadata
-      ) VALUES ($1, $2, $3, $4, $5::jsonb)
+      ) VALUES ($1, $2, $3, $4, $5, $6::jsonb)
       RETURNING id
     `,
     [
+      tenantId,
       auditData.adminUserId || null,
       auditData.action,
       auditData.instanceId || null,
@@ -1066,8 +1325,10 @@ async function recordAdminAudit(auditData) {
 }
 
 async function listAdminAudits(filters = {}) {
+  const tenantId = ensureTenantInFilters(filters);
   const clauses = [];
-  const values = [];
+  const values = [tenantId];
+  clauses.push(`a.tenant_id = $1`);
 
   if (filters.adminUserId) {
     values.push(filters.adminUserId);
@@ -1112,7 +1373,8 @@ async function listAdminAudits(filters = {}) {
   }));
 }
 
-async function listSellerSummaries() {
+async function listSellerSummaries(filters = {}) {
+  const tenantId = ensureTenantInFilters(filters);
   const result = await query(
     `
       SELECT
@@ -1152,8 +1414,10 @@ async function listSellerSummaries() {
         WHERE received_at >= NOW() - INTERVAL '1 day'
         GROUP BY instance_id
       ) recent_inbound ON recent_inbound.instance_id = i.id
+      WHERE i.tenant_id = $1
       ORDER BY i.label ASC, i.id ASC
-    `
+    `,
+    [tenantId]
   );
 
   return result.rows.map((row) => ({
@@ -1162,27 +1426,28 @@ async function listSellerSummaries() {
   }));
 }
 
-async function deleteInstancePermanently(instanceId) {
+async function deleteInstancePermanently(instanceId, tenantId) {
+  const scopedTenantId = ensureTenantInFilters({ tenantId });
   await initializeDatabase();
   const client = await state.pool.connect();
 
   try {
     await client.query("BEGIN");
     const deletedAudits = await client.query(
-      `DELETE FROM ${tableName("admin_audit_logs")} WHERE instance_id = $1`,
-      [instanceId]
+      `DELETE FROM ${tableName("admin_audit_logs")} WHERE instance_id = $1 AND tenant_id = $2`,
+      [instanceId, scopedTenantId]
     );
     const deletedInbound = await client.query(
-      `DELETE FROM ${tableName("inbound_messages")} WHERE instance_id = $1`,
-      [instanceId]
+      `DELETE FROM ${tableName("inbound_messages")} WHERE instance_id = $1 AND tenant_id = $2`,
+      [instanceId, scopedTenantId]
     );
     const deletedOutbound = await client.query(
-      `DELETE FROM ${tableName("outbound_messages")} WHERE instance_id = $1`,
-      [instanceId]
+      `DELETE FROM ${tableName("outbound_messages")} WHERE instance_id = $1 AND tenant_id = $2`,
+      [instanceId, scopedTenantId]
     );
     const deletedInstances = await client.query(
-      `DELETE FROM ${tableName("instances")} WHERE id = $1`,
-      [instanceId]
+      `DELETE FROM ${tableName("instances")} WHERE id = $1 AND tenant_id = $2`,
+      [instanceId, scopedTenantId]
     );
     await client.query("COMMIT");
 
@@ -1224,6 +1489,9 @@ async function closeDatabase() {
 
 module.exports = {
   initializeDatabase,
+  getTenantBySlug,
+  listTenants,
+  upsertTenant,
   upsertInstance,
   getInstanceById,
   getInstanceByEvolutionInstance,

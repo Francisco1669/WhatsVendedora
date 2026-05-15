@@ -1,4 +1,5 @@
 const TOKEN_KEY = "testezap_owner_token";
+const TENANT_SLUG_KEY = "testezap_tenant_slug";
 const RANGE_MS = {
     "24h": 24 * 60 * 60 * 1000,
     "7d": 7 * 24 * 60 * 60 * 1000,
@@ -54,6 +55,7 @@ function cacheElements() {
     dom.dashboardView = document.getElementById("dashboardView");
     dom.loginForm = document.getElementById("loginForm");
     dom.emailInput = document.getElementById("emailInput");
+    dom.tenantSlugInput = document.getElementById("tenantSlugInput");
     dom.passwordInput = document.getElementById("passwordInput");
     dom.loginButton = document.getElementById("loginButton");
     dom.loginError = document.getElementById("loginError");
@@ -322,6 +324,11 @@ function clamp(value, min, max) {
 }
 
 async function bootstrap() {
+    const storedTenantSlug = localStorage.getItem(TENANT_SLUG_KEY);
+    if (dom.tenantSlugInput && storedTenantSlug) {
+        dom.tenantSlugInput.value = storedTenantSlug;
+    }
+
     const storedToken = localStorage.getItem(TOKEN_KEY);
     if (!storedToken) {
         showLogin();
@@ -345,10 +352,11 @@ async function bootstrap() {
 async function onLoginSubmit(event) {
     event.preventDefault();
 
+    const tenantSlug = (dom.tenantSlugInput?.value || "").trim().toLowerCase();
     const email = dom.emailInput.value.trim();
     const password = dom.passwordInput.value;
-    if (!email || !password) {
-        setLoginError("Preencha email e senha.");
+    if (!tenantSlug || !email || !password) {
+        setLoginError("Preencha tenant, email e senha.");
         return;
     }
 
@@ -359,12 +367,13 @@ async function onLoginSubmit(event) {
         const payload = await apiRequest("/auth/login", {
             method: "POST",
             auth: false,
-            body: { email, password },
+            body: { tenantSlug, email, password },
         });
 
         state.token = payload.accessToken;
         state.user = payload.user;
         localStorage.setItem(TOKEN_KEY, payload.accessToken);
+        localStorage.setItem(TENANT_SLUG_KEY, tenantSlug);
 
         showDashboard();
         await refreshDashboard({ preserveSelection: true });

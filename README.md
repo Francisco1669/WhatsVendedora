@@ -81,6 +81,38 @@ npm run tunnel:logs
   - webhooks: `RATE_LIMIT_WEBHOOK_*`
 - Rotas `/api/*` protegidas por JWT
 - Webhooks validados por token/chave no processor
+- Multi-tenant com `tenant_id` e isolamento por tenant no backend
+
+## Rollout multi-tenant (anti-regressao)
+
+- `MULTI_TENANT_ENFORCED=false`:
+  - modo compatibilidade (fallback controlado para `tenant_default`).
+- `MULTI_TENANT_ENFORCED=true`:
+  - modo estrito (falha fechado sem tenant no contexto).
+- `AUTH_DEFAULT_TENANT_SLUG` define o slug do tenant default usado no bootstrap.
+
+## Onboarding de novo cliente (tenant)
+
+1. Crie o tenant e a conta owner:
+
+```bash
+npm run tenant:create -- --slug mundo-variedade --name "Mundo da Variedade" --owner-name "Dona" --owner-email dona@mundo.com --owner-password "SENHA_FORTE_AQUI"
+```
+
+2. Liste tenants cadastrados:
+
+```bash
+npm run tenant:list
+```
+
+3. No painel `/panel`, login com:
+- `tenantSlug` (ex.: `mundo-variedade`)
+- `email`
+- `password`
+
+Observacoes:
+- Instancias novas seguem padrao `<tenantSlug>_<sellerAlias>`.
+- O backend sempre usa o tenant do JWT para criar/listar dados.
 
 ## Retencao e backup
 

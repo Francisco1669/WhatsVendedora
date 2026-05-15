@@ -25,6 +25,10 @@ const {
 
 const router = express.Router();
 
+function currentTenantId(req) {
+    return req.auth?.user?.tenantId || "tenant_default";
+}
+
 function buildWebhookBaseUrl(req) {
     if (env.PUBLIC_WEBHOOK_BASE_URL) {
         return env.PUBLIC_WEBHOOK_BASE_URL
@@ -100,24 +104,43 @@ function buildIdSuffix() {
     return randomBytes(3).toString("hex");
 }
 
-async function allocateAvailableInstanceId(requestedId) {
-    const normalizedBase = String(requestedId || "")
+function normalizeSlugToken(value, fallback = "tenant") {
+    const normalized = String(value || "")
         .trim()
         .toLowerCase()
         .replace(/[^a-z0-9_-]+/g, "_")
         .replace(/_+/g, "_")
-        .replace(/^_+|_+$/g, "")
-        .slice(0, 32);
-    const base = normalizedBase || "seller";
+        .replace(/^_+|_+$/g, "");
+    return normalized || fallback;
+}
 
-    const exactMatch = await getInstanceById(base);
+function buildTenantScopedInstanceId(tenantSlug, requestedId) {
+    const tenantToken = normalizeSlugToken(tenantSlug, "tenant");
+    const sellerToken = normalizeSlugToken(requestedId, "seller");
+    const full = `${tenantToken}_${sellerToken}`;
+    return full.slice(0, 40);
+}
+
+function buildTenantScopedEvolutionInstance(tenantSlug, providedEvolutionInstance, allocatedId) {
+    const tenantToken = normalizeSlugToken(tenantSlug, "tenant");
+    const base = normalizeSlugToken(providedEvolutionInstance || allocatedId, "seller");
+    if (base.startsWith(`${tenantToken}_`)) {
+        return base.slice(0, 80);
+    }
+    return `${tenantToken}_${base}`.slice(0, 80);
+}
+
+async function allocateAvailableInstanceId(requestedId, tenantId = "tenant_default", tenantSlug = "tenant") {
+    const base = buildTenantScopedInstanceId(tenantSlug, requestedId);
+
+    const exactMatch = await getInstanceById(base, tenantId);
     if (!exactMatch) {
         return base;
     }
 
     for (let attempt = 0; attempt < 12; attempt += 1) {
         const candidate = `${base}_${buildIdSuffix()}`.slice(0, 40);
-        const exists = await getInstanceById(candidate);
+        const exists = await getInstanceById(candidate, tenantId);
         if (!exists) {
             return candidate;
         }
@@ -389,14 +412,22 @@ router.post(
     "/instances",
     asyncHandler(async (req, res) => {
         const parsedPayload = instancePayloadSchema.parse(req.body || {});
-        const allocatedId = await allocateAvailableInstanceId(parsedPayload.id);
+        const tenantId = currentTenantId(req);
+        const tenantSlug = req.auth?.user?.tenantSlug || "tenant";
+        const allocatedId = await allocateAvailableInstanceId(parsedPayload.id, tenantId, tenantSlug);
         const payload = {
             ...parsedPayload,
             id: allocatedId,
+            evolutionInstance: buildTenantScopedEvolutionInstance(
+                tenantSlug,
+                parsedPayload.evolutionInstance,
+                allocatedId
+            ),
         };
 
         const existingByEvolutionInstance = await getInstanceByEvolutionInstance(
-            payload.evolutionInstance
+            payload.evolutionInstance,
+            tenantId
         );
         if (existingByEvolutionInstance) {
             res.status(409).json({
@@ -410,6 +441,7 @@ router.post(
 
         const saved = await upsertInstance({
             ...payload,
+            tenantId,
             webhookToken,
         });
 
@@ -453,6 +485,7 @@ router.post(
 
         await recordAdminAudit({
             adminUserId: req.auth?.user?.id || null,
+            tenantId,
             action: "INSTANCE_UPSERT",
             instanceId: saved.id,
             metadata: {
@@ -472,7 +505,8 @@ router.post(
 router.patch(
     "/instances/:instanceId",
     asyncHandler(async (req, res) => {
-        const existing = await getInstanceById(req.params.instanceId);
+        const tenantId = currentTenantId(req);
+        const existing = await getInstanceById(req.params.instanceId, tenantId);
         if (!existing) {
             res.status(404).json({ error: "Instancia nao encontrada." });
             return;
@@ -482,6 +516,7 @@ router.patch(
 
         const saved = await upsertInstance({
             id: existing.id,
+            tenantId,
             label: payload.label ?? existing.label,
             phoneNumber: payload.phoneNumber ?? existing.phoneNumber,
             evolutionInstance: payload.evolutionInstance ?? existing.evolutionInstance,
@@ -492,6 +527,7 @@ router.patch(
 
         await recordAdminAudit({
             adminUserId: req.auth?.user?.id || null,
+            tenantId,
             action: "INSTANCE_UPDATE",
             instanceId: saved.id,
             metadata: {
@@ -508,16 +544,18 @@ router.patch(
 router.delete(
     "/instances/:instanceId",
     asyncHandler(async (req, res) => {
-        const existing = await getInstanceById(req.params.instanceId);
+        const tenantId = currentTenantId(req);
+        const existing = await getInstanceById(req.params.instanceId, tenantId);
         if (!existing) {
             res.status(404).json({ error: "Instancia nao encontrada." });
             return;
         }
 
-        const deleted = await deleteInstancePermanently(existing.id);
+        const deleted = await deleteInstancePermanently(existing.id, tenantId);
 
         await recordAdminAudit({
             adminUserId: req.auth?.user?.id || null,
+            tenantId,
             action: "INSTANCE_DELETE",
             instanceId: null,
             metadata: {
@@ -541,7 +579,8 @@ router.delete(
 router.post(
     "/instances/:instanceId/deactivate",
     asyncHandler(async (req, res) => {
-        const existing = await getInstanceById(req.params.instanceId);
+        const tenantId = currentTenantId(req);
+        const existing = await getInstanceById(req.params.instanceId, tenantId);
         if (!existing) {
             res.status(404).json({ error: "Instancia nao encontrada." });
             return;
@@ -549,6 +588,7 @@ router.post(
 
         const saved = await upsertInstance({
             id: existing.id,
+            tenantId,
             label: existing.label,
             phoneNumber: existing.phoneNumber,
             evolutionInstance: existing.evolutionInstance,
@@ -559,6 +599,7 @@ router.post(
 
         await recordAdminAudit({
             adminUserId: req.auth?.user?.id || null,
+            tenantId,
             action: "INSTANCE_DEACTIVATE",
             instanceId: saved.id,
             metadata: {
@@ -578,7 +619,8 @@ router.get(
     "/instances",
     asyncHandler(async (req, res) => {
         const includeState = req.query.includeState === "true";
-        const instances = (await listInstances()).map((item) => sanitizeInstance(item));
+        const tenantId = currentTenantId(req);
+        const instances = (await listInstances({ tenantId })).map((item) => sanitizeInstance(item));
 
         if (includeState && evolutionClient.isConfigured()) {
             await Promise.all(
@@ -607,7 +649,8 @@ router.get(
 router.post(
     "/instances/:instanceId/connect",
     asyncHandler(async (req, res) => {
-        const instance = await getInstanceById(req.params.instanceId);
+        const tenantId = currentTenantId(req);
+        const instance = await getInstanceById(req.params.instanceId, tenantId);
         if (!instance || !instance.active) {
             res.status(404).json({ error: "Instancia nao encontrada ou inativa." });
             return;
@@ -696,7 +739,7 @@ router.post(
                     );
                 }
 
-                const refreshedInstance = await getInstanceById(instance.id);
+                const refreshedInstance = await getInstanceById(instance.id, tenantId);
                 const refreshedQr = extractQrPayloadFromAny(refreshedInstance?.lastQrPayload);
                 if (hasUsefulQrData(refreshedQr)) {
                     qrData = refreshedQr;
@@ -789,7 +832,8 @@ router.post(
     "/instances/:instanceId/send",
     asyncHandler(async (req, res) => {
         const parsedBody = sendMessageSchema.parse(req.body || {});
-        const instance = await getInstanceById(req.params.instanceId);
+        const tenantId = currentTenantId(req);
+        const instance = await getInstanceById(req.params.instanceId, tenantId);
 
         if (!instance || !instance.active) {
             res.status(404).json({ error: "Instancia nao encontrada ou inativa." });
@@ -805,6 +849,7 @@ router.post(
         const sender = req.auth?.user || null;
 
         await saveOutboundMessage({
+            tenantId,
             instanceId: instance.id,
             originTag: `${instance.id}:${instance.phoneNumber}`,
             toJid: parsedBody.to,
@@ -818,6 +863,7 @@ router.post(
 
         await recordAdminAudit({
             adminUserId: sender?.id || null,
+            tenantId,
             action: "MESSAGE_SEND",
             instanceId: instance.id,
             targetJid: parsedBody.to,
@@ -840,7 +886,8 @@ router.post(
 router.get(
     "/instances/:instanceId/conversations",
     asyncHandler(async (req, res) => {
-        const instance = await getInstanceById(req.params.instanceId);
+        const tenantId = currentTenantId(req);
+        const instance = await getInstanceById(req.params.instanceId, tenantId);
         if (!instance) {
             res.status(404).json({ error: "Instancia nao encontrada." });
             return;
@@ -848,6 +895,7 @@ router.get(
 
         const query = instanceMessagesQuerySchema.parse(req.query || {});
         const conversations = await listInstanceConversations({
+            tenantId,
             instanceId: instance.id,
             receivedAfter: query.receivedAfter,
         });
@@ -867,7 +915,8 @@ router.get(
 router.post(
     "/instances/:instanceId/sync",
     asyncHandler(async (req, res) => {
-        const instance = await getInstanceById(req.params.instanceId);
+        const tenantId = currentTenantId(req);
+        const instance = await getInstanceById(req.params.instanceId, tenantId);
         if (!instance || !instance.active) {
             res.status(404).json({ error: "Instancia nao encontrada ou inativa." });
             return;
@@ -912,6 +961,7 @@ router.post(
                     routeInstanceId: instance.id,
                     headerInstanceName: instance.evolutionInstance,
                 });
+                normalized.tenantId = tenantId;
                 const resultSave = await saveInboundMessage(normalized);
                 if (resultSave.inserted) {
                     imported += 1;
@@ -927,6 +977,7 @@ router.post(
 
         await recordAdminAudit({
             adminUserId: req.auth?.user?.id || null,
+            tenantId,
             action: "INSTANCE_HISTORY_SYNC",
             instanceId: instance.id,
             metadata: {
@@ -956,7 +1007,8 @@ router.post(
 router.get(
     "/instances/:instanceId/messages",
     asyncHandler(async (req, res) => {
-        const instance = await getInstanceById(req.params.instanceId);
+        const tenantId = currentTenantId(req);
+        const instance = await getInstanceById(req.params.instanceId, tenantId);
         if (!instance) {
             res.status(404).json({ error: "Instancia nao encontrada." });
             return;
@@ -970,6 +1022,7 @@ router.get(
         const offset = Math.max(0, Number(query.offset || 0));
 
         const messages = await listInboundMessages({
+            tenantId,
             instanceId: instance.id,
             conversationId: query.conversationId,
             receivedAfter: query.receivedAfter,
