@@ -124,6 +124,16 @@
 
       <!-- Center Column: Conversations -->
       <section id="centerPanel" class="panel panel-center">
+        <header class="mobile-threads-header">
+          <button id="mobileBackToSellersButton" class="btn btn-soft btn-small" type="button">
+            <i class="ph ph-caret-left"></i> Vendedoras
+          </button>
+          <div class="mobile-header-copy">
+            <strong id="mobileThreadsSellerName">Conversas</strong>
+            <span id="mobileThreadsMeta" class="muted">Selecione uma vendedora</span>
+          </div>
+        </header>
+
         <header class="content-header">
           <div class="conv-info">
             <h2 id="conversationTitle">Conversas</h2>
@@ -155,6 +165,16 @@
           </aside>
           
           <div class="messages-area">
+             <header class="mobile-chat-header">
+               <button id="mobileBackToThreadsButton" class="btn btn-soft btn-small" type="button">
+                 <i class="ph ph-caret-left"></i> Conversas
+               </button>
+               <div class="mobile-header-copy">
+                 <strong id="mobileChatTitle">Chat</strong>
+                 <span id="mobileChatMeta" class="muted">Selecione uma conversa</span>
+               </div>
+             </header>
+
              <div id="messagesFeed" class="messages-feed scroll-list">
                 <div class="empty-feed">
                   <i class="ph ph-chats-circle" style="font-size:3rem; opacity:0.5; margin-bottom:12px;"></i>

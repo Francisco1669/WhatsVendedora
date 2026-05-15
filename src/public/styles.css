@@ -281,6 +281,26 @@ body {
 ----------------------------------------- */
 .content-header { display: flex; justify-content: space-between; align-items: center; padding: 16px; border-bottom: 0.5px solid var(--line); flex-shrink: 0;}
 .conv-info h2 { font-size: 1.15rem; font-weight: 700; color: var(--bg-dark); margin-bottom: 2px;}
+.mobile-threads-header,
+.mobile-chat-header { display: none; }
+.mobile-header-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+.mobile-header-copy strong {
+  font-size: 0.95rem;
+  color: var(--bg-dark);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mobile-header-copy .muted {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .date-filters { display: flex; gap: 12px; align-items: center;}
 .filter-group { display: flex; background: var(--bg-main); padding: 4px; border-radius: 8px; }
@@ -546,23 +566,75 @@ body {
   .login-card {
     padding: 30px 22px 26px;
   }
-  .dashboard-grid { display: flex; flex-direction: column; overflow-y: auto; }
-  body { height: auto; overflow: auto; }
+  body { height: 100vh; overflow: hidden; }
+  .dashboard-layout { height: 100dvh; overflow: hidden; }
+  .dashboard-grid {
+    position: relative;
+    display: block;
+    overflow: hidden;
+    min-height: 0;
+    flex: 1;
+  }
   .top-nav { position: sticky; top: 0; z-index: 10; }
   .brand-logo-nav { width: 40px; height: 40px; }
   .nav-brand { font-size: 0.9rem; }
   .resizer { display: none; }
-  .panel { border-right: 0.5px solid var(--line); border-bottom: 0.5px solid var(--line); flex: none; height: auto; min-height: 50vh; }
-  .panel-left { width: 100% !important; max-width: none; min-width: 0; order: 1; }
-  .panel-center { width: 100%; order: 2; }
+  .panel {
+    border: none;
+    position: absolute;
+    inset: 0;
+    height: 100%;
+    min-height: 0;
+  }
+  .panel-left,
+  .panel-center {
+    width: 100% !important;
+    max-width: none;
+    min-width: 0;
+    display: none;
+  }
+  #dashboardView[data-mobile-view="sellers"] .panel-left { display: flex; }
+  #dashboardView[data-mobile-view="threads"] .panel-center,
+  #dashboardView[data-mobile-view="chat"] .panel-center { display: flex; }
   .panel-right { display: none; }
-  .chat-workspace { display: flex; flex-direction: column; height: 80vh; }
-  .threads-sidebar { flex: 0 0 30%; border-bottom: 0.5px solid var(--line); border-right: none; }
-  .messages-area { flex: 1; }
+  .content-header { display: none; }
+  .mobile-threads-header,
+  .mobile-chat-header {
+    display: none;
+    gap: 10px;
+    align-items: center;
+    padding: 12px 14px;
+    border-bottom: 0.5px solid var(--line);
+    background: #ffffff;
+    flex-shrink: 0;
+  }
+  #dashboardView[data-mobile-view="threads"] .mobile-threads-header { display: flex; }
+  #dashboardView[data-mobile-view="chat"] .mobile-chat-header { display: flex; }
+  .chat-workspace {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    height: auto;
+  }
+  .threads-sidebar,
+  .messages-area {
+    display: none;
+    flex: 1;
+    min-height: 0;
+    border: none;
+  }
+  #dashboardView[data-mobile-view="threads"] .threads-sidebar { display: flex; }
+  #dashboardView[data-mobile-view="chat"] .messages-area { display: flex; }
   .message-item { max-width: 94%; }
   .message-media,
   .message-media-placeholder { width: min(260px, 100%); max-height: 200px; }
+  .messages-feed { padding: 12px; padding-bottom: 90px; }
+  .message-composer {
+    padding: 10px 12px;
+    gap: 8px;
+  }
+  .composer-inputs input { width: 120px; }
   .btn-send { min-width: 112px; padding: 0 14px; }
-  .seller-list { max-height: 400px; }
+  .seller-list { max-height: none; }
   .modal { width: 90%; }
 }

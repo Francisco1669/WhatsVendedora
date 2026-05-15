@@ -13,6 +13,7 @@ const PANEL_LIMITS = {
     left: { min: 160, max: 420, default: 360 },
     right: { min: 160, max: 380, default: 300 },
 };
+const MOBILE_BREAKPOINT = 820;
 
 const state = {
     token: "",
@@ -33,6 +34,7 @@ const state = {
 const dom = {};
 const uiState = {
     drag: null,
+    mobileView: "sellers",
     collapse: {
         overview: true,
         leads: true,
@@ -95,6 +97,12 @@ function cacheElements() {
 
     dom.conversationTitle = document.getElementById("conversationTitle");
     dom.conversationMeta = document.getElementById("conversationMeta");
+    dom.mobileBackToSellersButton = document.getElementById("mobileBackToSellersButton");
+    dom.mobileBackToThreadsButton = document.getElementById("mobileBackToThreadsButton");
+    dom.mobileThreadsSellerName = document.getElementById("mobileThreadsSellerName");
+    dom.mobileThreadsMeta = document.getElementById("mobileThreadsMeta");
+    dom.mobileChatTitle = document.getElementById("mobileChatTitle");
+    dom.mobileChatMeta = document.getElementById("mobileChatMeta");
     dom.threadsCounter = document.getElementById("threadsCounter");
     dom.threadsList = document.getElementById("threadsList");
     dom.messagesFeed = document.getElementById("messagesFeed");
@@ -128,6 +136,8 @@ function bindEvents() {
     dom.sellerSearchInput.addEventListener("input", renderSellerList);
     dom.sellerList.addEventListener("click", onSellerItemClick);
     dom.threadsList.addEventListener("click", onThreadItemClick);
+    dom.mobileBackToSellersButton?.addEventListener("click", () => setMobileView("sellers"));
+    dom.mobileBackToThreadsButton?.addEventListener("click", () => setMobileView("threads"));
     dom.qrCloseButton.addEventListener("click", hideQrCard);
 
     dom.sendForm.addEventListener("submit", onSendSubmit);
@@ -153,6 +163,7 @@ function bindEvents() {
     window.addEventListener("resize", () => {
         enforcePanelWidthsForViewport();
         refreshOpenCollapseHeights();
+        syncMobileLayout();
     });
 }
 
@@ -162,6 +173,7 @@ function initDashboardUi() {
     applyCollapseState();
     enforcePanelWidthsForViewport();
     refreshOpenCollapseHeights();
+    syncMobileLayout();
 }
 
 function loadPersistedPanelWidths() {
@@ -173,7 +185,7 @@ function loadPersistedPanelWidths() {
 }
 
 function enforcePanelWidthsForViewport() {
-    if (window.innerWidth <= 820) {
+    if (window.innerWidth <= MOBILE_BREAKPOINT) {
         clearPanelInlineWidths();
         return;
     }
@@ -210,7 +222,7 @@ function applyPanelWidth(side, width) {
 }
 
 function startResizeDrag(event, side) {
-    if (window.innerWidth <= 820) {
+    if (window.innerWidth <= MOBILE_BREAKPOINT) {
         return;
     }
     if (side === "right" && window.innerWidth <= 1024) {
@@ -321,6 +333,60 @@ function clamp(value, min, max) {
     return Math.min(Math.max(value, min), max);
 }
 
+function isMobileViewport() {
+    return window.innerWidth <= MOBILE_BREAKPOINT;
+}
+
+function syncMobileLayout() {
+    if (!dom.dashboardView) {
+        return;
+    }
+
+    if (!isMobileViewport()) {
+        dom.dashboardView.removeAttribute("data-mobile-view");
+        return;
+    }
+
+    dom.dashboardView.setAttribute("data-mobile-view", uiState.mobileView);
+    updateMobileHeaderCopy();
+}
+
+function setMobileView(view) {
+    if (!["sellers", "threads", "chat"].includes(view)) {
+        return;
+    }
+
+    uiState.mobileView = view;
+    syncMobileLayout();
+}
+
+function updateMobileHeaderCopy() {
+    const seller = getSellerById(state.selectedInstanceId);
+    const conversation = getConversationById(state.selectedConversationId);
+
+    if (dom.mobileThreadsSellerName) {
+        dom.mobileThreadsSellerName.textContent = seller?.sellerLabel || "Conversas";
+    }
+    if (dom.mobileThreadsMeta) {
+        dom.mobileThreadsMeta.textContent = seller
+            ? `${state.conversations.length} conversas`
+            : "Selecione uma vendedora";
+    }
+
+    if (dom.mobileChatTitle) {
+        dom.mobileChatTitle.textContent =
+            conversation?.displayName ||
+            conversation?.contactDisplay ||
+            conversation?.contactPhone ||
+            "Chat";
+    }
+    if (dom.mobileChatMeta) {
+        dom.mobileChatMeta.textContent = seller
+            ? seller.sellerLabel || seller.instanceId
+            : "Selecione uma conversa";
+    }
+}
+
 async function bootstrap() {
     const storedToken = localStorage.getItem(TOKEN_KEY);
     if (!storedToken) {
@@ -405,6 +471,7 @@ async function refreshDashboard({ preserveSelection }) {
         }
 
         renderSellerList();
+        updateMobileHeaderCopy();
 
         if (state.selectedInstanceId) {
             await loadConversationsForInstance(state.selectedInstanceId, { preserveConversation: true });
@@ -416,6 +483,9 @@ async function refreshDashboard({ preserveSelection }) {
             renderThreads();
             renderEmptyConversation("Nenhuma instancia cadastrada.");
             setComposerAvailability(null);
+            if (isMobileViewport()) {
+                setMobileView("sellers");
+            }
         }
     } catch (error) {
         handleApiError(error);
@@ -565,11 +635,26 @@ async function onSellerItemClick(event) {
     }
 
     const instanceId = selectButton.getAttribute("data-select-instance-id");
-    if (!instanceId || instanceId === state.selectedInstanceId) {
+    if (!instanceId) {
+        return;
+    }
+
+    if (instanceId === state.selectedInstanceId) {
+        if (!isMobileViewport()) {
+            return;
+        }
+
+        if (!state.conversations.length) {
+            await loadConversationsForInstance(instanceId, { preserveConversation: true });
+        }
+        setMobileView("threads");
         return;
     }
 
     await loadConversationsForInstance(instanceId, { preserveConversation: false });
+    if (isMobileViewport()) {
+        setMobileView("threads");
+    }
 }
 
 async function handleSellerAction(action, instanceId) {
@@ -991,6 +1076,7 @@ async function loadConversationsForInstance(instanceId, { preserveConversation }
     dom.conversationMeta.textContent = seller
         ? `${seller.phoneNumber || "-"} - ${seller.evolutionInstance || "-"}`
         : "Carregando conversas...";
+    updateMobileHeaderCopy();
 
     setComposerAvailability(null);
     updateSyncButtonState();
@@ -1027,6 +1113,7 @@ async function loadConversationsForInstance(instanceId, { preserveConversation }
             setComposerAvailability(null);
             updateSyncButtonState();
             renderEmptyConversation("Nenhuma conversa encontrada para esta vendedora.");
+            updateMobileHeaderCopy();
         }
     } catch (error) {
         handleApiError(error);
@@ -1035,6 +1122,7 @@ async function loadConversationsForInstance(instanceId, { preserveConversation }
         renderThreads();
         updateSyncButtonState();
         renderEmptyConversation("Nao foi possivel carregar as conversas desta vendedora.");
+        updateMobileHeaderCopy();
     }
 }
 
@@ -1052,6 +1140,7 @@ async function loadMessagesForConversation(instanceId, conversationId) {
               conversation?.isGroup ? "Grupo" : "Individual"
           } | ${conversation?.participantDisplay || conversation?.contactPhone || conversationId}`
         : conversationId;
+    updateMobileHeaderCopy();
 
     setComposerAvailability(seller);
     updateSyncButtonState();
@@ -1075,14 +1164,17 @@ async function loadMessagesForConversation(instanceId, conversationId) {
 
         renderMessages();
         prefillRecipientFromConversation(conversation);
+        updateMobileHeaderCopy();
     } catch (error) {
         handleApiError(error);
         renderEmptyConversation("Nao foi possivel carregar as mensagens desta conversa.");
+        updateMobileHeaderCopy();
     }
 }
 
 function renderThreads() {
     dom.threadsCounter.textContent = String(state.conversations.length);
+    updateMobileHeaderCopy();
 
     if (!state.conversations.length) {
         dom.threadsList.innerHTML = '<div class="empty-state">Sem conversas.</div>';
@@ -1120,11 +1212,21 @@ async function onThreadItemClick(event) {
     }
 
     const conversationId = threadButton.getAttribute("data-conversation-id");
-    if (!conversationId || conversationId === state.selectedConversationId) {
+    if (!conversationId) {
+        return;
+    }
+
+    if (conversationId === state.selectedConversationId) {
+        if (isMobileViewport()) {
+            setMobileView("chat");
+        }
         return;
     }
 
     await loadMessagesForConversation(state.selectedInstanceId, conversationId);
+    if (isMobileViewport()) {
+        setMobileView("chat");
+    }
 }
 
 function getConversationById(conversationId) {
@@ -1403,9 +1505,13 @@ function showDashboard() {
     dom.loginView.classList.add("hidden");
     dom.dashboardView.classList.remove("hidden");
     dom.userBadge.textContent = state.user ? `${state.user.name} (${state.user.role})` : "Admin";
+    if (isMobileViewport()) {
+        setMobileView("sellers");
+    }
     enforcePanelWidthsForViewport();
     applyCollapseState();
     refreshOpenCollapseHeights();
+    syncMobileLayout();
 }
 
 function setLoginLoading(isLoading) {
@@ -1440,10 +1546,12 @@ function clearSession() {
     state.selectedInstanceId = null;
     state.selectedConversationId = null;
     state.selectedOriginTag = null;
+    uiState.mobileView = "sellers";
     setHistoryStatus("");
     updateSyncButtonState();
     setSellerFormCreateMode();
     hideQrCard();
+    syncMobileLayout();
     localStorage.removeItem(TOKEN_KEY);
 }
 
