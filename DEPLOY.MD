@@ -119,6 +119,7 @@ git clone SEU_REPOSITORIO_GIT .
 cp .env.production.example .env.production
 ```
 
+
 Edite o arquivo:
 
 ```bash

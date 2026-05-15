@@ -4,6 +4,15 @@ const RANGE_MS = {
     "7d": 7 * 24 * 60 * 60 * 1000,
     all: null,
 };
+const PANEL_WIDTH_KEYS = {
+    left: "panel_sidebar_width",
+    right: "panel_right_width",
+};
+const COLLAPSE_STATE_KEY = "panel_collapse_state";
+const PANEL_LIMITS = {
+    left: { min: 160, max: 420, default: 360 },
+    right: { min: 160, max: 380, default: 300 },
+};
 
 const state = {
     token: "",
@@ -22,10 +31,19 @@ const state = {
 };
 
 const dom = {};
+const uiState = {
+    drag: null,
+    collapse: {
+        overview: true,
+        leads: true,
+        audit: true,
+    },
+};
 
 document.addEventListener("DOMContentLoaded", () => {
     cacheElements();
     bindEvents();
+    initDashboardUi();
     setSellerFormCreateMode();
     hideQrCard();
     bootstrap();
@@ -43,6 +61,14 @@ function cacheElements() {
     dom.refreshAllButton = document.getElementById("refreshAllButton");
     dom.logoutButton = document.getElementById("logoutButton");
     dom.userBadge = document.getElementById("userBadge");
+    dom.dashboardGrid = document.getElementById("dashboardGrid");
+    dom.leftPanel = document.getElementById("leftPanel");
+    dom.centerPanel = document.getElementById("centerPanel");
+    dom.rightPanel = document.getElementById("rightPanel");
+    dom.leftResizer = document.getElementById("leftResizer");
+    dom.rightResizer = document.getElementById("rightResizer");
+    dom.collapseToggles = Array.from(document.querySelectorAll("[data-collapse-toggle]"));
+    dom.collapseSections = Array.from(document.querySelectorAll(".collapsible-section"));
 
     dom.sellerForm = document.getElementById("sellerForm");
     dom.sellerFormTitle = document.getElementById("sellerFormTitle");
@@ -110,6 +136,189 @@ function bindEvents() {
     dom.rangeButtons.forEach((button) => {
         button.addEventListener("click", () => onRangeSelected(button.dataset.range));
     });
+
+    if (dom.leftResizer) {
+        dom.leftResizer.addEventListener("mousedown", (event) => startResizeDrag(event, "left"));
+    }
+    if (dom.rightResizer) {
+        dom.rightResizer.addEventListener("mousedown", (event) => startResizeDrag(event, "right"));
+    }
+    document.addEventListener("mousemove", onResizeDragMove);
+    document.addEventListener("mouseup", stopResizeDrag);
+
+    dom.collapseToggles.forEach((button) => {
+        button.addEventListener("click", () => toggleCollapseSection(button.dataset.collapseToggle));
+    });
+
+    window.addEventListener("resize", () => {
+        enforcePanelWidthsForViewport();
+        refreshOpenCollapseHeights();
+    });
+}
+
+function initDashboardUi() {
+    loadPersistedPanelWidths();
+    loadCollapseState();
+    applyCollapseState();
+    enforcePanelWidthsForViewport();
+    refreshOpenCollapseHeights();
+}
+
+function loadPersistedPanelWidths() {
+    const left = Number(localStorage.getItem(PANEL_WIDTH_KEYS.left));
+    const right = Number(localStorage.getItem(PANEL_WIDTH_KEYS.right));
+
+    applyPanelWidth("left", Number.isFinite(left) ? left : PANEL_LIMITS.left.default);
+    applyPanelWidth("right", Number.isFinite(right) ? right : PANEL_LIMITS.right.default);
+}
+
+function enforcePanelWidthsForViewport() {
+    if (window.innerWidth <= 820) {
+        clearPanelInlineWidths();
+        return;
+    }
+
+    const left = Number(localStorage.getItem(PANEL_WIDTH_KEYS.left));
+    const right = Number(localStorage.getItem(PANEL_WIDTH_KEYS.right));
+    applyPanelWidth("left", Number.isFinite(left) ? left : PANEL_LIMITS.left.default);
+    applyPanelWidth("right", Number.isFinite(right) ? right : PANEL_LIMITS.right.default);
+}
+
+function clearPanelInlineWidths() {
+    if (dom.leftPanel) {
+        dom.leftPanel.style.width = "";
+    }
+    if (dom.rightPanel) {
+        dom.rightPanel.style.width = "";
+    }
+}
+
+function applyPanelWidth(side, width) {
+    const limits = PANEL_LIMITS[side];
+    if (!limits) {
+        return;
+    }
+
+    const clamped = clamp(Math.round(width), limits.min, limits.max);
+    if (side === "left" && dom.leftPanel) {
+        dom.leftPanel.style.width = `${clamped}px`;
+    }
+    if (side === "right" && dom.rightPanel) {
+        dom.rightPanel.style.width = `${clamped}px`;
+    }
+    localStorage.setItem(PANEL_WIDTH_KEYS[side], String(clamped));
+}
+
+function startResizeDrag(event, side) {
+    if (window.innerWidth <= 820) {
+        return;
+    }
+    if (side === "right" && window.innerWidth <= 1024) {
+        return;
+    }
+
+    event.preventDefault();
+    uiState.drag = {
+        side,
+        startX: event.clientX,
+        startLeftWidth: dom.leftPanel ? dom.leftPanel.getBoundingClientRect().width : PANEL_LIMITS.left.default,
+        startRightWidth: dom.rightPanel ? dom.rightPanel.getBoundingClientRect().width : PANEL_LIMITS.right.default,
+    };
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+    const resizer = side === "left" ? dom.leftResizer : dom.rightResizer;
+    if (resizer) {
+        resizer.classList.add("is-dragging");
+    }
+}
+
+function onResizeDragMove(event) {
+    if (!uiState.drag) {
+        return;
+    }
+
+    const delta = event.clientX - uiState.drag.startX;
+    if (uiState.drag.side === "left") {
+        applyPanelWidth("left", uiState.drag.startLeftWidth + delta);
+    } else {
+        applyPanelWidth("right", uiState.drag.startRightWidth - delta);
+    }
+}
+
+function stopResizeDrag() {
+    if (!uiState.drag) {
+        return;
+    }
+
+    document.body.style.userSelect = "";
+    document.body.style.cursor = "";
+    dom.leftResizer?.classList.remove("is-dragging");
+    dom.rightResizer?.classList.remove("is-dragging");
+    uiState.drag = null;
+}
+
+function loadCollapseState() {
+    const raw = localStorage.getItem(COLLAPSE_STATE_KEY);
+    if (!raw) {
+        return;
+    }
+
+    try {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") {
+            uiState.collapse.overview = Boolean(parsed.overview);
+            uiState.collapse.leads = Boolean(parsed.leads);
+            uiState.collapse.audit = Boolean(parsed.audit);
+        }
+    } catch (_error) {
+        // Keep defaults when stored state is invalid.
+    }
+}
+
+function persistCollapseState() {
+    localStorage.setItem(COLLAPSE_STATE_KEY, JSON.stringify(uiState.collapse));
+}
+
+function toggleCollapseSection(sectionKey) {
+    if (!Object.prototype.hasOwnProperty.call(uiState.collapse, sectionKey)) {
+        return;
+    }
+    uiState.collapse[sectionKey] = !uiState.collapse[sectionKey];
+    persistCollapseState();
+    applyCollapseState();
+}
+
+function applyCollapseState() {
+    dom.collapseSections.forEach((section) => {
+        const key = section.dataset.collapseSection;
+        const content = section.querySelector(".collapse-content");
+        if (!key || !content) {
+            return;
+        }
+
+        const isCollapsed = Boolean(uiState.collapse[key]);
+        section.classList.toggle("is-collapsed", isCollapsed);
+        if (isCollapsed) {
+            content.style.maxHeight = "0px";
+        } else {
+            content.style.maxHeight = `${content.scrollHeight}px`;
+        }
+    });
+}
+
+function refreshOpenCollapseHeights() {
+    dom.collapseSections.forEach((section) => {
+        const key = section.dataset.collapseSection;
+        const content = section.querySelector(".collapse-content");
+        if (!key || !content || uiState.collapse[key]) {
+            return;
+        }
+        content.style.maxHeight = `${content.scrollHeight}px`;
+    });
+}
+
+function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
 }
 
 async function bootstrap() {
@@ -224,6 +433,7 @@ function renderStats() {
     dom.statOrigins.textContent = String(state.origins.length);
     dom.originsCounter.textContent = String(state.origins.length);
     dom.auditCounter.textContent = String(state.audits.length);
+    refreshOpenCollapseHeights();
 }
 
 function renderSellerList() {
@@ -281,6 +491,7 @@ function renderSellerList() {
 function renderOrigins() {
     if (!state.origins.length) {
         dom.originsList.innerHTML = '<div class="empty-state">Sem mensagens recebidas ainda.</div>';
+        refreshOpenCollapseHeights();
         return;
     }
 
@@ -296,11 +507,13 @@ function renderOrigins() {
       `;
         })
         .join("");
+    refreshOpenCollapseHeights();
 }
 
 function renderAudit() {
     if (!state.audits.length) {
         dom.auditList.innerHTML = '<div class="empty-state">Sem eventos de auditoria.</div>';
+        refreshOpenCollapseHeights();
         return;
     }
 
@@ -332,6 +545,7 @@ function renderAudit() {
       `;
         })
         .join("");
+    refreshOpenCollapseHeights();
 }
 
 async function onSellerItemClick(event) {
@@ -1189,6 +1403,9 @@ function showDashboard() {
     dom.loginView.classList.add("hidden");
     dom.dashboardView.classList.remove("hidden");
     dom.userBadge.textContent = state.user ? `${state.user.name} (${state.user.role})` : "Admin";
+    enforcePanelWidthsForViewport();
+    applyCollapseState();
+    refreshOpenCollapseHeights();
 }
 
 function setLoginLoading(isLoading) {

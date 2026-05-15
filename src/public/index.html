@@ -75,9 +75,9 @@
       </div>
     </header>
 
-    <main class="dashboard-grid">
+    <main id="dashboardGrid" class="dashboard-grid">
       <!-- Left Column: Sellers List and Simple Add -->
-      <aside class="panel">
+      <aside id="leftPanel" class="panel panel-left">
         <div class="panel-header">
           <h3>Equipe de Vendas</h3>
           <span id="sellersCounter" class="counter-badge">0</span>
@@ -87,15 +87,15 @@
         <form id="sellerForm" class="seller-add-box">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
             <strong id="sellerFormTitle" style="font-size:0.9rem;">Adicionar Vendedora</strong>
-            <span id="sellerFormModeTag" class="counter-badge" style="background:#e0f2fe; color:#0284c7;">Novo</span>
+            <span id="sellerFormModeTag" class="counter-badge" style="background:#dcfce7; color:#1D9E75;">Novo</span>
           </div>
 
           <div class="input-group" style="margin-bottom:8px;">
-            <input id="sellerLabelInput" type="text" placeholder="Nome Ex: Maria São Paulo" required style="width:100%; border:1px solid #cbd5e1; padding:8px; border-radius:6px; font-size:0.85rem;" />
+            <input id="sellerLabelInput" type="text" placeholder="Nome Ex: Maria Sao Paulo" required style="width:100%; border:1px solid #d1d5db; padding:8px; border-radius:6px; font-size:0.85rem;" />
           </div>
           
           <div class="input-group" style="margin-bottom:12px;">
-            <input id="sellerPhoneInput" type="text" placeholder="WhatsApp Ex: 5511900000000" required style="width:100%; border:1px solid #cbd5e1; padding:8px; border-radius:6px; font-size:0.85rem;" />
+            <input id="sellerPhoneInput" type="text" placeholder="WhatsApp Ex: 5511900000000" required style="width:100%; border:1px solid #d1d5db; padding:8px; border-radius:6px; font-size:0.85rem;" />
           </div>
 
           <!-- HIDDEN TECHNICAL FIELDS -->
@@ -110,18 +110,20 @@
           </div>
         </form>
 
-        <div style="padding: 12px 16px; border-bottom: 1px solid #f1f5f9;">
+        <div style="padding: 12px 16px; border-bottom: 0.5px solid #e5e7eb;">
           <div style="position:relative;">
             <i class="ph ph-magnifying-glass" style="position:absolute; left:10px; top:8px; color:var(--text-light);"></i>
-            <input id="sellerSearchInput" type="search" placeholder="Filtrar..." style="width:100%; border:1px solid #cbd5e1; padding:6px 12px 6px 32px; border-radius:8px; font-size:0.85rem;" />
+            <input id="sellerSearchInput" type="search" placeholder="Filtrar..." style="width:100%; border:1px solid #d1d5db; padding:6px 12px 6px 32px; border-radius:8px; font-size:0.85rem;" />
           </div>
         </div>
 
         <div id="sellerList" class="scroll-list seller-list"></div>
       </aside>
 
+      <div id="leftResizer" class="resizer" data-resizer="left" aria-hidden="true"></div>
+
       <!-- Center Column: Conversations -->
-      <section class="panel">
+      <section id="centerPanel" class="panel panel-center">
         <header class="content-header">
           <div class="conv-info">
             <h2 id="conversationTitle">Conversas</h2>
@@ -135,8 +137,8 @@
               <button class="filter-btn range-button" data-range="all">Tudo</button>
             </div>
             <div class="sync-actions">
-              <button id="syncConversationButton" class="btn btn-outline btn-small" title="Baixar histórico do contato atual"><i class="ph ph-download-simple"></i> Chat</button>
-              <button id="syncInstanceButton" class="btn btn-outline btn-small" title="Baixar histórico 100% da vendedora"><i class="ph ph-cloud-arrow-down"></i> Vendedora</button>
+              <button id="syncConversationButton" class="btn btn-outline btn-small" title="Baixar historico do contato atual"><i class="ph ph-download-simple"></i> Chat</button>
+              <button id="syncInstanceButton" class="btn btn-outline btn-small" title="Baixar historico 100% da vendedora"><i class="ph ph-cloud-arrow-down"></i> Vendedora</button>
             </div>
           </div>
         </header>
@@ -164,7 +166,7 @@
              <form id="sendForm" class="message-composer">
                <div class="composer-inputs">
                  <input id="recipientInput" type="text" placeholder="DDI+DDD+Numero" required/>
-                 <textarea id="messageInput" placeholder="Mensagem da supervisão..." rows="1" required></textarea>
+                 <textarea id="messageInput" placeholder="Mensagem da supervisao..." rows="1" required></textarea>
                </div>
                <button id="sendButton" class="btn-send" type="submit"><i class="ph-fill ph-paper-plane-right"></i></button>
              </form>
@@ -172,43 +174,58 @@
         </div>
       </section>
 
+      <div id="rightResizer" class="resizer" data-resizer="right" aria-hidden="true"></div>
+
       <!-- Right Column: Stats and Insights -->
-      <aside class="panel col-right">
-        
-        <div class="widget" style="border:none; background:transparent;">
-          <h3 style="font-size:0.95rem; font-weight:600; margin-bottom:12px; color:var(--text-main);">Visão Geral</h3>
-          <div class="stats-grid">
-            <div class="stat-card">
-              <span>Instâncias On</span>
-              <strong id="statActiveSellers">0</strong>
-            </div>
-            <div class="stat-card">
-              <span>Msgs (24h)</span>
-              <strong id="statInbound24h">0</strong>
-            </div>
-            <div class="stat-card">
-              <span>Total Origens</span>
-              <strong id="statOrigins">0</strong>
+      <aside id="rightPanel" class="panel col-right panel-right">
+        <div class="widget collapsible-section" data-collapse-section="overview">
+          <button class="collapse-header" type="button" data-collapse-toggle="overview">
+            <span>Visao geral</span>
+            <i class="collapse-chevron ti-chevron-down ph ph-caret-down"></i>
+          </button>
+          <div class="collapse-content" data-collapse-content="overview">
+            <div class="stats-grid">
+              <div class="stat-card">
+                <span>Instancias On</span>
+                <strong id="statActiveSellers">0</strong>
+              </div>
+              <div class="stat-card">
+                <span>Msgs (24h)</span>
+                <strong id="statInbound24h">0</strong>
+              </div>
+              <div class="stat-card">
+                <span>Total Origens</span>
+                <strong id="statOrigins">0</strong>
+              </div>
             </div>
           </div>
         </div>
 
-        <div class="widget">
-          <div class="widget-header">
+        <div class="widget collapsible-section" data-collapse-section="leads">
+          <button class="collapse-header" type="button" data-collapse-toggle="leads">
             <span>Volume de Leads</span>
-            <span id="originsCounter" class="counter-badge">0</span>
+            <span class="header-tools">
+              <span id="originsCounter" class="counter-badge">0</span>
+              <i class="collapse-chevron ti-chevron-down ph ph-caret-down"></i>
+            </span>
+          </button>
+          <div class="collapse-content" data-collapse-content="leads">
+            <div id="originsList" class="scroll-list compact-list"></div>
           </div>
-          <div id="originsList" class="scroll-list compact-list"></div>
         </div>
 
-        <div class="widget">
-          <div class="widget-header">
+        <div class="widget collapsible-section" data-collapse-section="audit">
+          <button class="collapse-header" type="button" data-collapse-toggle="audit">
             <span>Auditoria Recente</span>
-            <span id="auditCounter" class="counter-badge">0</span>
+            <span class="header-tools">
+              <span id="auditCounter" class="counter-badge">0</span>
+              <i class="collapse-chevron ti-chevron-down ph ph-caret-down"></i>
+            </span>
+          </button>
+          <div class="collapse-content" data-collapse-content="audit">
+            <div id="auditList" class="scroll-list compact-list"></div>
           </div>
-          <div id="auditList" class="scroll-list compact-list"></div>
         </div>
-
       </aside>
     </main>
   </section>
@@ -240,4 +257,5 @@
   <script src="./app.js"></script>
 </body>
 </html>
+
 
