@@ -161,11 +161,11 @@ async function processEvolutionWebhookJob(jobData) {
     const eventName = extractEventName(jobData.body);
     const detectedStatus = extractConnectionStatus(jobData.body, eventName);
     if (detectedStatus) {
-        await setInstanceStatus(instance.id, detectedStatus);
+        await setInstanceStatus(instance.id, detectedStatus, instance.tenantId || "tenant_default");
     }
 
     if ((eventName || "").toUpperCase().includes("QRCODE") || hasQrInPayload(jobData.body)) {
-        await setInstanceLatestQr(instance.id, jobData.body);
+        await setInstanceLatestQr(instance.id, jobData.body, instance.tenantId || "tenant_default");
     }
 
     if (!isMessageEvent(eventName)) {
@@ -187,6 +187,7 @@ async function processEvolutionWebhookJob(jobData) {
         routeInstanceId,
         headerInstanceName: getHeader(jobData.headers, "x-evolution-instance"),
     });
+    normalized.tenantId = instance.tenantId || "tenant_default";
 
     const saveResult = await saveInboundMessage(normalized);
 

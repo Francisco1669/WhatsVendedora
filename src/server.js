@@ -20,6 +20,7 @@ async function bootstrapOwnerFromEnv() {
     }
 
     const result = await bootstrapOwnerUser({
+        tenantId: "tenant_default",
         name: env.OWNER_BOOTSTRAP_NAME,
         email: env.OWNER_BOOTSTRAP_EMAIL,
         passwordHash: hashPassword(env.OWNER_BOOTSTRAP_PASSWORD),
@@ -59,6 +60,7 @@ async function start() {
             evolutionKeyFingerprint,
             webhookBaseUrl: env.PUBLIC_WEBHOOK_BASE_URL || null,
             corsAllowedOrigins: env.CORS_ALLOWED_ORIGINS,
+            multiTenantEnforced: env.MULTI_TENANT_ENFORCED,
         },
         "Runtime integration snapshot"
     );

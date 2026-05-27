@@ -1,5 +1,6 @@
 const jwt = require("jsonwebtoken");
 const env = require("../config/env");
+const { normalizeTenantId } = require("./tenant-scope");
 
 const ISSUER = "testezap";
 
@@ -17,6 +18,12 @@ function assertJwtConfigured() {
 
 function signAccessToken(adminUser) {
     assertJwtConfigured();
+    const tenantId = normalizeTenantId(adminUser.tenantId);
+    if (env.MULTI_TENANT_ENFORCED && !tenantId) {
+        const error = new Error("Nao foi possivel emitir JWT sem tenantId.");
+        error.status = 401;
+        throw error;
+    }
 
     return jwt.sign(
         {
@@ -24,6 +31,8 @@ function signAccessToken(adminUser) {
             role: adminUser.role,
             name: adminUser.name,
             email: adminUser.email,
+            tenantId: tenantId || undefined,
+            tenantSlug: adminUser.tenantSlug || undefined,
         },
         env.AUTH_JWT_SECRET,
         {

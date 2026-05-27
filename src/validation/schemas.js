@@ -55,6 +55,7 @@ const auditQuerySchema = z.object({
 });
 
 const loginSchema = z.object({
+    tenantSlug: z.string().trim().min(2).max(80).regex(/^[a-z0-9-]+$/),
     email: z.string().trim().email(),
     password: z.string().min(6).max(120),
 });

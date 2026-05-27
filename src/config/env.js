@@ -35,7 +35,10 @@ module.exports = {
     WEBHOOK_QUEUE_CONCURRENCY: parseNumber(process.env.WEBHOOK_QUEUE_CONCURRENCY, 5),
     AUTH_JWT_SECRET: process.env.AUTH_JWT_SECRET || "",
     AUTH_JWT_EXPIRES_IN: process.env.AUTH_JWT_EXPIRES_IN || "12h",
+    AUTH_DEFAULT_TENANT_SLUG: process.env.AUTH_DEFAULT_TENANT_SLUG || "tenant_default",
     AUTH_BCRYPT_ROUNDS: parseNumber(process.env.AUTH_BCRYPT_ROUNDS, 10),
+    MULTI_TENANT_ENFORCED:
+        String(process.env.MULTI_TENANT_ENFORCED || "false").toLowerCase() === "true",
     CORS_ALLOWED_ORIGINS: (process.env.CORS_ALLOWED_ORIGINS || "")
         .split(",")
         .map((item) => item.trim())

@@ -317,3 +317,39 @@ Voce precisa de:
 - rotina de deploy
 
 Com este guia, voce cobre tudo isso com menor custo e complexidade.
+
+---
+
+## 17) Multi-tenant em producao (novo)
+
+### 17.1 Fase 1 (compatibilidade)
+No `.env.production`:
+
+```bash
+MULTI_TENANT_ENFORCED=false
+```
+
+Suba/reinicie stack e crie o primeiro tenant via CLI:
+
+```bash
+cd /opt/mundo-variedade
+docker compose --env-file .env.production -f docker-compose.evolution.yml exec -T whatsvendedora-api node scripts/tenant-create.js --slug mundo-variedade --name "Mundo da Variedade" --owner-name "Dona" --owner-email dona@mundo.com --owner-password "SENHA_FORTE_AQUI"
+```
+
+### 17.2 Validacao
+1. Login no painel com `tenantSlug + email + senha`.
+2. Criar instancia e confirmar que ID segue `<tenantSlug>_<sellerAlias>`.
+3. Confirmar que dados de outro tenant nao aparecem.
+
+### 17.3 Fase 2 (modo estrito)
+Depois do piloto validado, alterar no `.env.production`:
+
+```bash
+MULTI_TENANT_ENFORCED=true
+```
+
+Reinicie a stack:
+
+```bash
+APP_ENV_FILE=.env.production docker compose --env-file .env.production -f docker-compose.evolution.yml up -d --build
+```

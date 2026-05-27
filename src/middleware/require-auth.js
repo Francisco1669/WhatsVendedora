@@ -1,5 +1,6 @@
 const { getAdminUserById } = require("../db/database");
 const { verifyAccessToken } = require("../services/jwt-service");
+const { assertTenantScope } = require("../services/tenant-scope");
 
 function extractBearerToken(req) {
     const authHeader = req.get("authorization") || "";
@@ -24,9 +25,16 @@ async function requireAuth(req, res, next) {
         const payload = verifyAccessToken(token);
         const userId = Number(payload.sub || 0);
         const adminUser = await getAdminUserById(userId);
+        const tokenTenantId = assertTenantScope(payload.tenantId);
 
         if (!adminUser || !adminUser.active) {
             const error = new Error("Usuario administrativo nao encontrado ou inativo.");
+            error.status = 401;
+            next(error);
+            return;
+        }
+        if (tokenTenantId && adminUser.tenantId && tokenTenantId !== adminUser.tenantId) {
+            const error = new Error("Token invalido para o tenant do usuario.");
             error.status = 401;
             next(error);
             return;
@@ -39,6 +47,8 @@ async function requireAuth(req, res, next) {
                 name: adminUser.name,
                 email: adminUser.email,
                 role: adminUser.role,
+                tenantId: adminUser.tenantId || tokenTenantId || null,
+                tenantSlug: adminUser.tenantSlug || payload.tenantSlug || null,
             },
         };
 
